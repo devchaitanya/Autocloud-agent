@@ -1,0 +1,9 @@
+simpy>=4.0
+gymnasium>=0.29
+torch>=2.0
+numpy>=1.24
+anthropic>=0.20
+pytest
+matplotlib
+jupyter
+scipy
