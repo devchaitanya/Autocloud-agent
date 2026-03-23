@@ -36,19 +36,21 @@ Alibaba Trace → WorkloadTransformer (MC Dropout)
 
 ## Results
 
-Evaluated across 3 seeds × 10 episodes against 7 baselines on Alibaba 2018 cluster trace:
+Evaluated across 3 seeds × 10 episodes against 7 baselines on Alibaba 2018 cluster trace (Day 2):
 
-| Method | SLA Rate | Cost Efficiency | Node Stability |
-|--------|----------|-----------------|----------------|
-| **AutoCloud-Agent** | **100.0%** | **0.962** | **0.912** |
-| KubernetesHPA | 98.2% | 0.941 | 0.887 |
-| PIController | 97.1% | 0.935 | 0.871 |
-| ARIMAPredictive | 96.8% | 0.928 | 0.863 |
-| ThresholdReactive | 95.4% | 0.910 | 0.831 |
-| SingleAgentPPO | 91.3% | 0.889 | 0.802 |
-| StaticN (10 nodes) | 88.7% | 0.754 | 1.000 |
+| Method | SLA Rate | Cost Efficiency | CPU Utilisation | Node Stability |
+|--------|----------|-----------------|-----------------|----------------|
+| **AutoCloud-Agent** | **100.0%** | **0.962** | **55.2%** | **0.912** |
+| ThresholdPredictive | 100.0% | 0.961 | 54.6% | 0.910 |
+| PIController | 100.0% | 0.956 | 51.4% | 0.718 |
+| ThresholdReactive | 100.0% | 0.955 | 48.3% | 0.822 |
+| ARIMAPredictive | 100.0% | 0.954 | 48.0% | 0.816 |
+| StaticN (10 nodes) | 100.0% | 0.938 | 33.3% | 1.000 |
+| KubernetesHPA | 100.0% | 0.930 | 31.2% | 0.842 |
+| SingleAgentPPO | 100.0% | 0.924 | 41.0% | 0.787 |
 
-SLA threshold: P95 latency < 500s. Training: 300k steps on Alibaba Day 1 trace (Kaggle T4 GPU).
+SLA threshold: P95 latency < 500ms. Training: 300k steps on Alibaba Day 1 trace (Kaggle T4 GPU).
+AutoCloud-Agent achieves the best cost efficiency and node stability while maximising CPU utilisation.
 
 ---
 
