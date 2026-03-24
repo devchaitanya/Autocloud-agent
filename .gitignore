@@ -12,13 +12,12 @@ checkpoints/
 data/
 *.npy
 
-# AutoResearch outputs
+# Runtime outputs
 autoresearch/results.tsv
-experiment.py.bak
-autoresearch_best.json
-autoresearch_progress.png
-results_comparison.png
+src/autoresearch/results.tsv
+src/autoresearch/live_results.tsv
 evaluation_results.json
+experiment.py.bak
 
 # Jupyter
 .ipynb_checkpoints/
@@ -31,3 +30,6 @@ notebooks/.ipynb_checkpoints/
 # IDE
 .vscode/
 .idea/
+
+# Test artifacts
+tests/

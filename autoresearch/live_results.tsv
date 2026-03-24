@@ -1,4 +1,0 @@
-iter	score	sla	cost	mean_util	n_samples	status	description
-1	0.9694	1.0000	0.3060	0.326	50	keep	+config.reward.alpha2  = 2.0 | -config.reward.beta1  = 2.0   # Increase dollar cost penalty
-2	0.9695	1.0000	0.3053	0.307	111	keep	+config.reward.gamma2  = 2.0 | -config.reward.alpha2  = 2.0
-3	0.9694	1.0000	0.3060	0.306	172	discard	+config.reward.alpha1  = 2.0 | -config.reward.gamma2  = 2.0

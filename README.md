@@ -129,26 +129,27 @@ Covers: live simulation visualisation · baseline comparison charts · AutoResea
 
 ```
 autocloud_agent/
-├── pipeline.py              ← main entry point (eval / autoresearch / live)
-├── train.py                 ← training script (also called by AutoResearch internally)
-├── experiment.py            ← single file the LLM modifies (reward weights + PPO params)
-├── program.md               ← AutoResearch research directives (human-editable)
+├── pipeline.py        ← main entry point  (eval / autoresearch / live)
+├── train.py           ← training script   (called by AutoResearch internally)
+├── experiment.py      ← single file the LLM modifies (reward weights + PPO params)
+├── program.md         ← AutoResearch research directives (human-editable)
 │
-├── agents/                  ← ScaleOut, Consolidation, Scheduling agents + shared PPO
-├── environment/             ← SimPy simulator, CloudEnv (Gymnasium), workload loader,
-│                               LiveWorkloadBuffer (live traffic ingestion)
-├── coordinator/             ← SafetyCoordinator (4-filter hierarchical safety gate)
-├── forecaster/              ← WorkloadTransformer + MCDropoutForecaster
-├── training/                ← IPPOTrainer, baselines (7 methods)
-├── autoresearch/            ← LLM engine, subprocess runner, live adaptation loop
-├── evaluation/              ← Evaluator (8 methods × 3 seeds × metrics)
-├── configs/                 ← Config dataclasses (SimConfig, PPOConfig, RewardConfig)
+├── src/               ← all source code
+│   ├── agents/        ← ScaleOut, Consolidation, Scheduling agents + shared PPO
+│   ├── configs/       ← Config dataclasses (SimConfig, PPOConfig, RewardConfig)
+│   ├── coordinator/   ← SafetyCoordinator (4-filter hierarchical safety gate)
+│   ├── environment/   ← SimPy simulator, CloudEnv, workload loader, LiveWorkloadBuffer
+│   ├── evaluation/    ← Evaluator (8 methods × 3 seeds × metrics)
+│   ├── forecaster/    ← WorkloadTransformer + MCDropoutForecaster
+│   ├── training/      ← IPPOTrainer, 7 baselines, EMA normaliser
+│   └── autoresearch/  ← LLM engine, subprocess runner, live adaptation loop
+│
 └── notebooks/
-    ├── train_forecaster.ipynb
-    ├── train_rl_agents.ipynb
-    ├── results.ipynb
-    ├── multiday_eval.ipynb
-    └── demo.ipynb
+    ├── train_forecaster.ipynb   ← Kaggle: train Transformer forecaster
+    ├── train_rl_agents.ipynb    ← Kaggle: train 3 I-PPO agents (300k steps)
+    ├── results.ipynb            ← plot learning curves + baseline comparison
+    ├── multiday_eval.ipynb      ← evaluate across all 7 Alibaba days
+    └── demo.ipynb               ← live visualisation + AutoResearch demo
 ```
 
 ---

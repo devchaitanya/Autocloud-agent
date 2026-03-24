@@ -17,7 +17,7 @@ import sys
 import json
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
 from configs.default_config import DEFAULT_CONFIG
 from training.ippo_trainer import IPPOTrainer

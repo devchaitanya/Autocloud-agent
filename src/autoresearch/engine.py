@@ -32,11 +32,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from autoresearch.subprocess_runner import run_trial, FAILURE_SENTINEL
 from configs.default_config import Config, DEFAULT_CONFIG
 
-# Paths (relative to autocloud_agent root)
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Paths: src/autoresearch/ → up 2 levels → repo root (autocloud_agent/)
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 EXPERIMENT_FILE = os.path.join(_ROOT, "experiment.py")
 PROGRAM_FILE    = os.path.join(_ROOT, "program.md")
-RESULTS_TSV     = os.path.join(_ROOT, "autoresearch", "results.tsv")
+RESULTS_TSV     = os.path.join(_ROOT, "src", "autoresearch", "results.tsv")
 
 
 # ------------------------------------------------------------------ #

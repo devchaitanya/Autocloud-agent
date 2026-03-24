@@ -27,7 +27,7 @@ from typing import Optional
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # → src/
 
 from environment.live_buffer import LiveWorkloadBuffer
 from autoresearch.engine import (
@@ -37,8 +37,9 @@ from autoresearch.engine import (
 )
 from autoresearch.subprocess_runner import run_trial, FAILURE_SENTINEL
 
-_ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_LIVE_TSV = os.path.join(_ROOT, "autoresearch", "live_results.tsv")
+# src/autoresearch/ → up 3 levels → repo root (autocloud_agent/)
+_ROOT     = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_LIVE_TSV = os.path.join(_ROOT, "src", "autoresearch", "live_results.tsv")
 
 
 class LiveAutoResearch:
@@ -85,7 +86,7 @@ class LiveAutoResearch:
         self.best_score = FAILURE_SENTINEL
         self._iter      = 0
 
-        os.makedirs(os.path.join(_ROOT, "autoresearch"), exist_ok=True)
+        os.makedirs(os.path.join(_ROOT, "src", "autoresearch"), exist_ok=True)
         if not os.path.exists(_LIVE_TSV):
             with open(_LIVE_TSV, "w") as f:
                 f.write("iter\tscore\tsla\tcost\tmean_util\tn_samples\tstatus\tdescription\n")

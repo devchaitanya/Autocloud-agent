@@ -32,8 +32,9 @@ import numpy as np
 
 FAILURE_SENTINEL = float("-inf")
 
+# src/autoresearch/ → up 3 levels → repo root (autocloud_agent/)
 _TRAIN_SCRIPT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "train.py",
 )
 
