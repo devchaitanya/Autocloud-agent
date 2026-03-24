@@ -141,14 +141,37 @@ class LiveAutoResearch:
 
             t0 = time.time()
 
+            # Determine traffic regime for explicit LLM guidance
+            util = self.buffer.mean_util
+            if util < 0.35:
+                regime     = "LOW"
+                regime_action = (
+                    "Traffic is LOW — prioritise COST REDUCTION. "
+                    "Increase alpha2 (over-prov penalty) or alpha3 (node count) or beta1 (cost weight). "
+                    "Decrease alpha1 or beta2 if SLA is already 100%."
+                )
+            elif util < 0.60:
+                regime     = "MEDIUM"
+                regime_action = (
+                    "Traffic is MEDIUM — balance SLA and cost. "
+                    "Small increase to beta2 (SLA bonus) for headroom, or beta1 (cost) to trim spending."
+                )
+            else:
+                regime     = "HIGH"
+                regime_action = (
+                    "Traffic is HIGH — prioritise SLA PROTECTION. "
+                    "Increase alpha1 (under-prov penalty), beta2 (SLA bonus), gamma2 (SLA violation). "
+                    "Decrease beta1 (cost weight) and alpha3 (node count penalty)."
+                )
+
             # Build prompt with live traffic context injected
             live_ctx = (
-                f"\n## Live Traffic (last {self.buffer.window_seconds//60} min)\n"
+                f"\n## Live Traffic Context (last {self.buffer.window_seconds//60} min)\n"
                 f"Mean CPU utilisation : {self.buffer.mean_util:.1%}\n"
                 f"Latest measurement   : {self.buffer.latest_util:.1%}\n"
                 f"Buffer samples       : {self.buffer.n_samples}\n"
-                f"\nHint: if utilisation is HIGH (>70%), favour SLA-protection "
-                f"weights. If LOW (<40%), favour cost-reduction weights.\n"
+                f"Traffic regime       : **{regime}**\n\n"
+                f"ACTION REQUIRED: {regime_action}\n"
             )
             prompt = _build_prompt(
                 current_code, self.history, i, max_iterations,
