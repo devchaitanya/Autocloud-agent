@@ -2,7 +2,7 @@
 
 Hierarchical Multi-Agent Reinforcement Learning for autonomous cloud resource management.
 
-Three independent PPO agents — **ScaleOut**, **Consolidation**, and **Scheduling** — co-operate inside a SimPy discrete-event cloud simulator, guided by a Transformer workload forecaster and a 4-filter Safety Coordinator. A Karpathy-style AutoResearch loop uses an LLM to autonomously tune reward weights overnight.
+Three independent PPO agents — **ScaleOut**, **Consolidation**, and **Scheduling** — co-operate inside a SimPy discrete-event cloud simulator, guided by a Transformer workload forecaster and a 4-filter Safety Coordinator. A Karpathy-style AutoResearch loop uses an LLM to continuously tune reward weights based on live traffic.
 
 ---
 
@@ -30,7 +30,8 @@ Alibaba Trace → WorkloadTransformer (MC Dropout)
 | **Scheduling Agent** | Per-job priority reordering (pointer-network style) |
 | **Safety Coordinator** | Boot-protect · N_min floor · Uncertainty suppression · Scale-out suppression |
 | **Forecaster** | Transformer encoder → quantile predictions at t+1/5/10/15 with MC Dropout uncertainty |
-| **AutoResearch** | LLM rewrites `experiment.py` each iteration, runs fast trial, keeps or discards |
+| **AutoResearch** | LLM rewrites `experiment.py` each iteration, runs trial, keeps or discards |
+| **Live Adaptation** | Streams live traffic into rolling buffer → fine-tunes agents every N minutes |
 
 ---
 
@@ -50,7 +51,7 @@ Evaluated across 3 seeds × 10 episodes against 7 baselines on Alibaba 2018 clus
 | SingleAgentPPO | 100.0% | 0.924 | 41.0% | 0.787 |
 
 SLA threshold: P95 latency < 500ms. Training: 300k steps on Alibaba Day 1 trace (Kaggle T4 GPU).
-AutoCloud-Agent achieves the best cost efficiency and node stability while maximising CPU utilisation.
+AutoCloud-Agent leads on cost efficiency and node stability while maximising CPU utilisation.
 
 ---
 
@@ -69,35 +70,58 @@ Open in order on Kaggle:
 1. `notebooks/train_forecaster.ipynb` — trains Transformer forecaster
 2. `notebooks/train_rl_agents.ipynb` — trains 3 I-PPO agents (300k steps, ~3h on T4)
 
-Download outputs: `checkpoints/` folder + `day1_processed.npy`
+Download `outputs/` folder to your local machine.
 
 ### 3 — Evaluate locally
 
 ```bash
-python pipeline.py
+python pipeline.py \
+  --checkpoint_dir ../outputs/rl_agents \
+  --workload_file  ../outputs/train_Forecaster/day2_processed.npy
 # Output: evaluation_results.json + printed comparison table
 ```
 
-### 4 — AutoResearch (LLM reward tuning)
+### 4 — AutoResearch (offline reward tuning)
 
 ```bash
 export GROQ_API_KEY=gsk_...        # free key from console.groq.com
-python pipeline.py --mode autoresearch --llm_provider groq
-
-# Or fully local with Ollama (no API key):
-ollama pull llama3.2:3b && ollama serve &
-python pipeline.py --mode autoresearch --llm_provider ollama
+python pipeline.py --mode autoresearch --llm_provider groq \
+  --checkpoint_dir ../outputs/rl_agents \
+  --workload_file  ../outputs/train_Forecaster/day2_processed.npy \
+  --ar_steps 25000 --ar_iterations 4
 ```
 
-The LLM reads `experiment.py`, proposes reward weight changes, runs a 2000-step trial, and keeps or discards — Karpathy-style.
+The LLM reads `experiment.py` + trial history, proposes reward weight changes, runs a trial, keeps or discards — Karpathy-style.
 
-### 5 — Demo notebook
+### 5 — Live Adaptation (continuous tuning from live traffic)
+
+```bash
+python pipeline.py --mode live --llm_provider groq \
+  --checkpoint_dir ../outputs/rl_agents \
+  --workload_file  ../outputs/train_Forecaster/day2_processed.npy \
+  --live_interval 3 --live_iterations 5 --live_steps 6000
+```
+
+Streams the Alibaba Day 2 trace at **24x compression** (1 day plays in 1 hour).
+Every 3 minutes real-time (~72 min of simulated traffic), the LLM sees current
+utilisation stats and proposes reward weight updates. Agents are fine-tuned from
+existing checkpoints — not retrained from scratch. Best config is promoted live.
+
+For a full 1-hour run (6 iterations × 10 min):
+```bash
+python pipeline.py --mode live --llm_provider groq \
+  --checkpoint_dir ../outputs/rl_agents \
+  --workload_file  ../outputs/train_Forecaster/day2_processed.npy \
+  --live_interval 10 --live_iterations 6 --live_steps 8000
+```
+
+### 6 — Demo notebook
 
 ```bash
 jupyter notebook notebooks/demo.ipynb
 ```
 
-Covers: live simulation visualization · baseline comparison charts · AutoResearch loop.
+Covers: live simulation visualisation · baseline comparison charts · AutoResearch loop.
 
 ---
 
@@ -105,17 +129,18 @@ Covers: live simulation visualization · baseline comparison charts · AutoResea
 
 ```
 autocloud_agent/
-├── pipeline.py              ← main local entry point (eval + autoresearch)
-├── train.py                 ← training script (called by AutoResearch internally)
+├── pipeline.py              ← main entry point (eval / autoresearch / live)
+├── train.py                 ← training script (also called by AutoResearch internally)
 ├── experiment.py            ← single file the LLM modifies (reward weights + PPO params)
 ├── program.md               ← AutoResearch research directives (human-editable)
 │
 ├── agents/                  ← ScaleOut, Consolidation, Scheduling agents + shared PPO
-├── environment/             ← SimPy simulator, CloudEnv (Gymnasium), workload loader
+├── environment/             ← SimPy simulator, CloudEnv (Gymnasium), workload loader,
+│                               LiveWorkloadBuffer (live traffic ingestion)
 ├── coordinator/             ← SafetyCoordinator (4-filter hierarchical safety gate)
 ├── forecaster/              ← WorkloadTransformer + MCDropoutForecaster
 ├── training/                ← IPPOTrainer, baselines (7 methods)
-├── autoresearch/            ← Karpathy-style LLM engine + subprocess runner
+├── autoresearch/            ← LLM engine, subprocess runner, live adaptation loop
 ├── evaluation/              ← Evaluator (8 methods × 3 seeds × metrics)
 ├── configs/                 ← Config dataclasses (SimConfig, PPOConfig, RewardConfig)
 └── notebooks/
@@ -132,6 +157,7 @@ autocloud_agent/
 
 [Alibaba 2018 Cluster Trace](https://github.com/alibaba/clusterdata) — 4023 machines, 7 days.
 The workload loader (`environment/workload.py`) preprocesses CPU/mem utilization into 30-second bins.
+Agents are trained on Day 1 (~25% avg util) and evaluated on Day 2 (30–60% util, unseen distribution).
 
 ---
 
@@ -141,7 +167,7 @@ The workload loader (`environment/workload.py`) preprocesses CPU/mem utilization
 - **Independent buffers**: each agent's PPO update fires when its own buffer fills — scheduling fills 10× faster than scale-out
 - **Safety first**: coordinator filters run before every action; scale-out is never blocked, consolidation is heavily gated
 - **MC Dropout uncertainty**: forecaster uncertainty feeds directly into coordinator — high σ suppresses all drain actions
-- **Seed randomization**: each training episode uses a different random seed for domain randomization and generalization
+- **Live adaptation**: rolling buffer streams real traffic; LLM detects utilisation shifts and adjusts reward weights in minutes
 
 ---
 
@@ -149,7 +175,15 @@ The workload loader (`environment/workload.py`) preprocesses CPU/mem utilization
 
 Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch).
 
-The LLM is given the current `experiment.py` code + trial history, proposes a rewrite, and the result is kept or discarded based on `score = SLA_rate − 0.1 × cost`. Works with Groq (free), Ollama (local), Gemini (free tier), or Anthropic.
+**Offline mode** (`--mode autoresearch`): LLM reads `experiment.py` + history, proposes a full rewrite,
+runs a fresh trial, keeps or discards based on `score = SLA_rate − 0.1 × cost`.
+
+**Live mode** (`--mode live`): Same loop but driven by a rolling buffer of live traffic measurements.
+The LLM receives current CPU utilisation stats and adjusts weights accordingly — high traffic shifts
+weights toward SLA protection, low traffic toward cost reduction. Agents fine-tune from existing
+checkpoints rather than training from scratch, so each iteration takes minutes not hours.
+
+Works with Groq (free), Ollama (local), Gemini (free tier), or Anthropic.
 
 ---
 

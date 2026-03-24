@@ -37,6 +37,8 @@ def parse_args():
     p.add_argument("--eval_only",       action="store_true")
     p.add_argument("--experiment_file", type=str, default=None,
                    help="Path to experiment.py defining get_config() (AutoResearch)")
+    p.add_argument("--workload_file",   type=str, default=None,
+                   help="Path to .npy workload trace (live buffer or Alibaba data)")
     p.add_argument("--verbose",         action="store_true", default=True)
     p.add_argument("--no_verbose",      action="store_false", dest="verbose")
     return p.parse_args()
@@ -106,11 +108,21 @@ def main():
 
     forecaster = load_forecaster(args.forecaster_path, args.device)
 
+    # ── Workload function ──────────────────────────────────────────────
+    workload_fn = None
+    if args.workload_file and os.path.exists(args.workload_file):
+        data  = np.load(args.workload_file)
+        rates = np.clip(data[:, 0] if data.ndim > 1 else data, 0.1, 1.0)
+        n     = len(rates)
+        def workload_fn(sim_time: float) -> float:
+            return float(rates[int(sim_time / 30.0) % n])
+
     trainer = IPPOTrainer(
         config=config,
         seed=args.seed,
         device=args.device,
         forecaster=forecaster,
+        workload_fn=workload_fn,
         verbose=args.verbose,
         log_interval=args.log_interval,
     )

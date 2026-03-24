@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 def parse_args():
     p = argparse.ArgumentParser(description="AutoCloud-Agent local pipeline")
     p.add_argument("--mode",            type=str, default="eval",
-                   choices=["eval", "autoresearch", "all"],
+                   choices=["eval", "autoresearch", "all", "live"],
                    help="What to run (default: eval)")
     p.add_argument("--checkpoint_dir",  type=str, default="checkpoints",
                    help="Directory with trained .pt files")
@@ -66,6 +66,15 @@ def parse_args():
                    help="AutoResearch iterations (default: 4)")
     p.add_argument("--ar_steps",        type=int, default=2000,
                    help="Training steps per AutoResearch trial (default: 2000)")
+    # Live adaptation args
+    p.add_argument("--live_interval",   type=int, default=10,
+                   help="Minutes between live AutoResearch iterations (default: 10)")
+    p.add_argument("--live_iterations", type=int, default=6,
+                   help="Number of live iterations (default: 6 → 1 hour with 10-min interval)")
+    p.add_argument("--live_steps",      type=int, default=8000,
+                   help="Fine-tuning steps per live trial (default: 8000)")
+    p.add_argument("--compression",     type=float, default=24.0,
+                   help="Workload compression ratio: 24 = 1 day in 1 hour (default: 24)")
     return p.parse_args()
 
 
@@ -209,6 +218,51 @@ def run_autoresearch(args):
 
 
 # ------------------------------------------------------------------ #
+# Mode: live
+# ------------------------------------------------------------------ #
+
+def run_live(args):
+    from autoresearch.live_loop import LiveAutoResearch
+
+    workload_path = _find_workload(args.workload_file)
+
+    print(f"\n{'='*60}")
+    print(f"  Live AutoResearch — Continuous Adaptation")
+    print(f"  Workload     : {workload_path or 'NOT FOUND'}")
+    print(f"  Checkpoints  : {args.checkpoint_dir}")
+    print(f"  Compression  : {args.compression:.0f}x  "
+          f"(1 day → {3600/args.compression/60:.0f} min real-time)")
+    print(f"  AR interval  : every {args.live_interval} min")
+    print(f"  Iterations   : {args.live_iterations}  "
+          f"(~{args.live_interval * args.live_iterations} min total)")
+    print(f"  Trial steps  : {args.live_steps} (fine-tune from checkpoints)")
+    print(f"  LLM provider : {args.llm_provider}")
+    print(f"{'='*60}\n")
+
+    if not workload_path:
+        print("[pipeline] ERROR: No workload file found. Pass --workload_file.")
+        return
+
+    key_env = {"groq": "GROQ_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
+                "gemini": "GEMINI_API_KEY", "ollama": None}
+    if key_env.get(args.llm_provider) and not os.environ.get(key_env[args.llm_provider]):
+        print(f"[pipeline] ERROR: {key_env[args.llm_provider]} not set.")
+        return
+
+    loop = LiveAutoResearch(
+        checkpoint_dir=args.checkpoint_dir,
+        workload_file=workload_path,
+        interval_minutes=args.live_interval,
+        compression=args.compression,
+        trial_steps=args.live_steps,
+        llm_provider=args.llm_provider,
+        llm_model=args.llm_model,
+        verbose=True,
+    )
+    loop.run(max_iterations=args.live_iterations)
+
+
+# ------------------------------------------------------------------ #
 # Main
 # ------------------------------------------------------------------ #
 
@@ -223,6 +277,9 @@ def main():
 
     if args.mode in ("autoresearch", "all"):
         run_autoresearch(args)
+
+    if args.mode == "live":
+        run_live(args)
 
     print("\n[pipeline] Done.")
 
