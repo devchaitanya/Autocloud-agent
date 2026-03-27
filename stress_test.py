@@ -26,7 +26,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src
 from configs.default_config import DEFAULT_CONFIG
 from environment.cloud_env import CloudEnv
 from training.ippo_trainer import IPPOTrainer
-from training.baselines import KubernetesHPA, ThresholdReactive, StaticN
+from training.baselines import (KubernetesHPA, ThresholdReactive, StaticN,
+                                AWSTargetTracking, MPCController, PIDDerivative, BurstAwareScaler)
 
 
 # ─── Scenario builders ────────────────────────────────────────────────────────
@@ -139,12 +140,20 @@ def run_episode(policy, config, workload_fn, seed: int = 42):
 
 
 def evaluate_scenario(name, profile_str, workload_fn, trainer, config, seeds=(0, 1, 2)):
-    """Run AutoCloud-Agent + 3 baselines on a scenario, return result dict."""
+    """Run AutoCloud-Agent + all baselines on a scenario, return result dict."""
     policies = {
-        'AutoCloud-Agent': trainer,
-        'KubernetesHPA':   KubernetesHPA(),
+        'AutoCloud-Agent':   trainer,
+        # Industry-standard
+        'KubernetesHPA':     KubernetesHPA(),
+        'AWSTargetTracking': AWSTargetTracking(),
+        # Classical control
+        'PIDerivative':      PIDDerivative(),
+        'MPCController':     MPCController(),
+        # Burst-aware heuristic
+        'BurstAwareScaler':  BurstAwareScaler(),
         'ThresholdReactive': ThresholdReactive(),
-        'StaticN(10)':     StaticN(10),
+        # Do-nothing
+        'StaticN(10)':       StaticN(10),
     }
     results = {}
     for pol_name, pol in policies.items():

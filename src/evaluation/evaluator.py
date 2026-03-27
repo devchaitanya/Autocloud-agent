@@ -31,7 +31,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from configs.default_config import DEFAULT_CONFIG, Config
 from environment.cloud_env import CloudEnv
 from training.baselines import (StaticN, ThresholdReactive, ThresholdPredictive,
-                                SingleAgentPPO, KubernetesHPA, PIController, ARIMAPredictive)
+                                SingleAgentPPO, KubernetesHPA, PIController, ARIMAPredictive,
+                                AWSTargetTracking, MPCController, PIDDerivative, BurstAwareScaler)
 from training.ippo_trainer import IPPOTrainer
 
 
@@ -191,12 +192,22 @@ class Evaluator:
         """
         methods = {
             "AutoCloud-Agent":     lambda s: self._make_autocloud(s),
+            # Industry-standard autoscalers
             "KubernetesHPA":       lambda s: KubernetesHPA(),
+            "AWSTargetTracking":   lambda s: AWSTargetTracking(),
+            # Classical control theory
             "PIController":        lambda s: PIController(),
+            "PIDDerivative":       lambda s: PIDDerivative(),
+            # Statistical / predictive
             "ARIMAPredictive":     lambda s: ARIMAPredictive(),
-            "SingleAgentPPO":      lambda s: self._make_single_ppo(s),
+            "MPCController":       lambda s: MPCController(),
+            # Rule-based
+            "BurstAwareScaler":    lambda s: BurstAwareScaler(),
             "ThresholdReactive":   lambda s: self._make_threshold_reactive(),
             "ThresholdPredictive": lambda s: self._make_threshold_predictive(),
+            # Deep RL baseline
+            "SingleAgentPPO":      lambda s: self._make_single_ppo(s),
+            # Do-nothing baseline
             "StaticN":             lambda s: self._make_static_n(),
         }
 
