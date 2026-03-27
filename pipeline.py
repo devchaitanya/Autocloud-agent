@@ -66,6 +66,8 @@ def parse_args():
                    help="AutoResearch iterations (default: 4)")
     p.add_argument("--ar_steps",        type=int, default=2000,
                    help="Training steps per AutoResearch trial (default: 2000)")
+    p.add_argument("--ar_dry_run",      action="store_true",
+                   help="Print the LLM prompt AutoResearch would send, without calling any API")
     # Live adaptation args
     p.add_argument("--live_interval",   type=int, default=10,
                    help="Minutes between live AutoResearch iterations (default: 10)")
@@ -174,7 +176,30 @@ def run_eval(args):
 # ------------------------------------------------------------------ #
 
 def run_autoresearch(args):
-    from autoresearch.engine import AutoResearchEngine
+    from autoresearch.engine import (
+        AutoResearchEngine, _load_program_md, _load_experiment_code, _build_prompt
+    )
+
+    # ── Dry-run: show the prompt without calling any API ─────────────
+    if getattr(args, "ar_dry_run", False):
+        print(f"\n{'='*60}")
+        print(f"  AutoResearch DRY RUN — no API call made")
+        print(f"  This is the exact prompt that would be sent to the LLM")
+        print(f"{'='*60}\n")
+        program_md = _load_program_md()
+        current_code = _load_experiment_code()
+        prompt = _build_prompt(
+            current_code=current_code,
+            history=[],
+            n_iter=1,
+            total=args.ar_iterations,
+            program_md=program_md,
+        )
+        print(prompt)
+        print(f"\n{'='*60}")
+        print(f"  To run for real: export GROQ_API_KEY=gsk_... then remove --ar_dry_run")
+        print(f"{'='*60}\n")
+        return None
 
     # Check API key for cloud providers
     key_env = {
@@ -191,6 +216,7 @@ def run_autoresearch(args):
             print("  → Free key at https://aistudio.google.com  then: export GEMINI_API_KEY=...")
         elif args.llm_provider == "anthropic":
             print("  → export ANTHROPIC_API_KEY=sk-ant-...")
+        print("\n  Tip: use --ar_dry_run to preview the prompt without an API key.")
         return None
 
     print(f"\n{'='*60}")
