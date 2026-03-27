@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Dict
 
 
 @dataclass
@@ -14,22 +13,6 @@ class SimConfig:
     k_jobs: int = 20                  # top-K jobs in obs
     lognormal_mu: float = 2.0
     lognormal_sigma: float = 1.0
-
-
-@dataclass
-class NodeTypeDef:
-    cpu: int
-    memory: float        # GB
-    cost_per_hr: float
-    boot_time: float     # seconds
-
-
-NODE_TYPES: Dict[str, NodeTypeDef] = {
-    "small":  NodeTypeDef(cpu=2,  memory=4.0,  cost_per_hr=0.05, boot_time=30.0),
-    "medium": NodeTypeDef(cpu=4,  memory=8.0,  cost_per_hr=0.10, boot_time=45.0),
-    "large":  NodeTypeDef(cpu=8,  memory=16.0, cost_per_hr=0.20, boot_time=60.0),
-    "xlarge": NodeTypeDef(cpu=16, memory=32.0, cost_per_hr=0.40, boot_time=90.0),
-}
 
 
 @dataclass
@@ -73,6 +56,7 @@ class RewardConfig:
     alpha2: float = 1.0    # over-provisioning penalty
     alpha3: float = 0.5    # running cost pressure
     alpha4: float = 0.3    # boot-event penalty
+    alpha5: float = 0.5    # uncertainty × rising-CPU proactive scale bonus
     # Consolidation
     beta1: float = 1.0     # running cost
     beta2: float = 2.0     # SLA bonus

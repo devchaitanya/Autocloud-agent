@@ -102,12 +102,14 @@ def run_episode(policy, env: CloudEnv, config: Config) -> Dict[str, float]:
     stability  = max(0.0, min(1.0, stability))
 
     return {
-        "sla_rate":       sla_rate,
+        "sla_rate":        sla_rate,
         "cost_efficiency": cost_eff,
         "mean_cpu_util":   mean_cpu,
         "node_stability":  stability,
         "total_cost":      total_cost,
         "n_episodes":      1,
+        "node_count_trace": node_counts,   # list of n_active per step (for time-series plots)
+        "cpu_util_trace":   cpu_utils,     # list of mean CPU per step
     }
 
 
@@ -166,9 +168,14 @@ class Evaluator:
             all_metrics.append(m)
 
         avg = {}
+        trace_keys = {"node_count_trace", "cpu_util_trace"}
         for key in all_metrics[0]:
-            vals = [m[key] for m in all_metrics]
-            avg[key] = float(np.mean(vals))
+            if key in trace_keys:
+                # Keep the last episode's trace (representative sample)
+                avg[key] = all_metrics[-1][key]
+            else:
+                vals = [m[key] for m in all_metrics]
+                avg[key] = float(np.mean(vals))
         return avg
 
     def evaluate_all(self) -> Dict[str, Dict[str, Any]]:
@@ -209,13 +216,18 @@ class Evaluator:
                 if self.verbose:
                     print(f" SLA={m['sla_rate']:.2%} cost_eff={m['cost_efficiency']:.3f}")
 
-            # Aggregate
+            # Aggregate (traces are lists — keep last seed's trace, skip std)
             mean_m = {}
-            std_m = {}
+            std_m  = {}
+            trace_keys = {"node_count_trace", "cpu_util_trace"}
             for key in seed_metrics[0]:
-                vals = [m[key] for m in seed_metrics]
-                mean_m[key] = float(np.mean(vals))
-                std_m[key]  = float(np.std(vals))
+                if key in trace_keys:
+                    mean_m[key] = seed_metrics[-1][key]
+                    std_m[key]  = []
+                else:
+                    vals = [m[key] for m in seed_metrics]
+                    mean_m[key] = float(np.mean(vals))
+                    std_m[key]  = float(np.std(vals))
 
             results[method_name] = {
                 "mean":     mean_m,
@@ -226,7 +238,7 @@ class Evaluator:
         return results
 
     def print_table(self, results: Dict[str, Dict]) -> None:
-        """Print a formatted results table."""
+        """Print a formatted results table (scalar metrics only)."""
         metrics = ["sla_rate", "cost_efficiency", "mean_cpu_util", "node_stability"]
         col_w = 22
 

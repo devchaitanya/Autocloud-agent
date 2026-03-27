@@ -5,7 +5,7 @@ Because Scale-Out only adds and Consolidation only drains, there are zero
 capacity-direction conflicts by design. The coordinator's role is purely
 safety filtering — it never overrides intent, only enforces constraints.
 
-Four filters applied in sequence (each can shrink drain_set further):
+Five filters applied in sequence:
 
   Filter 1 — Boot-protection:
     Nodes younger than boot_time + warmup_period are protected from draining.
@@ -17,7 +17,7 @@ Four filters applied in sequence (each can shrink drain_set further):
     until the floor is met. Tie-break: keep highest-CPU nodes (they're serving
     real load); drain lowest-CPU ones first.
 
-  Filter 3 — Uncertainty-aware suppression:
+  Filter 3 — Uncertainty-aware drain suppression:
     If forecast uncertainty σ_{t+5} > sigma_high, suppress the entire drain
     set. High uncertainty means the forecaster isn't confident about near-future
     demand — conservative action is safest.
@@ -26,6 +26,12 @@ Four filters applied in sequence (each can shrink drain_set further):
     If Scale-Out just fired (a_scaleout > 0), suppress Consolidation for this
     step. Don't drain while booting new nodes — the new capacity hasn't arrived
     yet and draining simultaneously wastes the provisioning cost.
+
+  Filter 5 — Uncertainty-driven proactive scale-out (REACTIVE SAFETY):
+    If σ_{t+5} > sigma_high AND CPU is rising, force at least 1 new node even
+    if the ScaleOut agent chose 0. This catches out-of-distribution early spikes
+    that the Transformer forecaster hasn't seen during training — exactly the
+    "Early Shock" failure mode from Days 5 & 6 of the Alibaba trace.
 """
 from __future__ import annotations
 
@@ -54,6 +60,8 @@ class SafetyCoordinator:
         nodes: List[Node],                  # current live node list (same slot order as obs)
         current_time: float,
         sigma_t5: float,                    # forecast uncertainty at t+5
+        cpu_rising: bool = False,           # True when current CPU > previous step CPU
+        cpu_delta: float = 0.0,             # absolute change in CPU util this step
         n_max: int = 20,
     ) -> Tuple[int, np.ndarray, np.ndarray]:
         """
@@ -105,6 +113,17 @@ class SafetyCoordinator:
         # ── Filter 4: Simultaneous scale-out suppression ──────────────
         if a_scaleout > 0:
             drain_set = []
+
+        # ── Filter 5: Uncertainty-driven proactive scale-out ──────────
+        # Fires when EITHER:
+        #   (a) forecaster uncertainty is high AND cpu is rising
+        #       → out-of-distribution spike the Transformer didn't predict
+        #   (b) cpu spiked sharply (>6% in one 30s step) even with no forecaster
+        #       → pure reactive fallback for early-shock workloads
+        cpu_spike = cpu_delta > 0.06
+        if (sigma_t5 > self.sigma_high or cpu_spike) and cpu_rising:
+            a_scaleout = max(a_scaleout, 1)
+            drain_set = []   # don't drain while forcing scale-out
 
         # Rebuild binary vector from filtered drain_set
         drain_ids_set = set(drain_set)

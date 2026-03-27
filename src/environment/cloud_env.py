@@ -104,6 +104,7 @@ class CloudEnv(gym.Env):
         self._step_count: int = 0
         self._prev_n_active: int = self.sim_cfg.n_init
         self._last_scaleout_step: int = -100
+        self._prev_cpu: float = 0.0   # for cpu_rising detection
 
         # Forecaster output (injected externally each step)
         self.forecast_means: np.ndarray = np.zeros(4, dtype=np.float32)
@@ -125,6 +126,7 @@ class CloudEnv(gym.Env):
         self._step_count = 0
         self._prev_n_active = self.sim_cfg.n_init
         self._last_scaleout_step = -100
+        self._prev_cpu = 0.0
         self.forecast_means = np.zeros(4, dtype=np.float32)
         self.forecast_sigmas = np.zeros(4, dtype=np.float32)
 
@@ -179,8 +181,11 @@ class CloudEnv(gym.Env):
         # 5. Collect metrics
         metrics = self.sim.get_metrics()
 
-        # 6. Compute per-agent rewards
-        rewards = self._compute_rewards(metrics, scaleout_action)
+        # 6. Compute per-agent rewards (pass uncertainty + rising-CPU signal)
+        sigma_t5   = float(self.forecast_sigmas[1])
+        cpu_rising = metrics["mean_cpu_util"] > self._prev_cpu
+        rewards    = self._compute_rewards(metrics, scaleout_action, sigma_t5, cpu_rising)
+        self._prev_cpu = metrics["mean_cpu_util"]
 
         # 7. Build observation
         obs = self._build_observation()
@@ -247,7 +252,13 @@ class CloudEnv(gym.Env):
     # Reward computation
     # ------------------------------------------------------------------ #
 
-    def _compute_rewards(self, metrics: dict, scaleout_action: int) -> Dict[str, float]:
+    def _compute_rewards(
+        self,
+        metrics: dict,
+        scaleout_action: int,
+        sigma_t5: float = 0.0,
+        cpu_rising: bool = False,
+    ) -> Dict[str, float]:
         r = self.rew_cfg
         cpu = metrics["mean_cpu_util"]
         n_active = metrics["n_active"]
@@ -262,11 +273,15 @@ class CloudEnv(gym.Env):
         sla_met = float(p95 < sla_ms) if p95 > 0 else 1.0
 
         # Scale-Out reward
+        # alpha5 bonus: when forecaster is uncertain AND load is rising, reward
+        # proactive scaling so the agent learns to act early under surprise load.
+        uncertainty_bonus = r.alpha5 * sigma_t5 * float(cpu_rising)
         r_scaleout = (
             - r.alpha1 * max(0.0, cpu - r.cpu_high)
             - r.alpha2 * max(0.0, r.cpu_low - cpu)
             - r.alpha3 * (n_active / N_MAX)
             - r.alpha4 * float(scaleout_action > 0)
+            + uncertainty_bonus
         )
 
         # Consolidation reward
