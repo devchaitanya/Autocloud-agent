@@ -1,127 +1,82 @@
 # AutoCloud-Agent
 
-Hierarchical Multi-Agent Reinforcement Learning for autonomous cloud resource management.
+**Multi-Agent Reinforcement Learning for Cloud Autoscaling**
 
-Three independent PPO agents — **ScaleOut**, **Consolidation**, and **Scheduling** — co-operate inside a SimPy discrete-event cloud simulator, guided by a Transformer workload forecaster and a 4-filter Safety Coordinator. A Karpathy-style AutoResearch loop uses an LLM to continuously tune reward weights based on live traffic.
+Three specialised RL agents learn to manage a cloud cluster — adding servers, draining idle ones, and prioritising jobs — while a Transformer forecaster predicts demand and a Safety Coordinator prevents dangerous actions.
+
+Tested against 6 SOTA baselines (Kubernetes HPA, AWS Target Tracking, MPC, etc.) on real **Alibaba Cluster Trace 2018** data.
+
+---
+
+## Quick Start
+
+```bash
+cd autocloud_agent/
+conda activate myenv
+pip install -e .      # one-time install
+
+# Live demo (interactive, shows RL agent vs Kubernetes HPA side-by-side)
+python demo.py
+
+# Full evaluation (7 methods × 5 episodes × 3 seeds)
+python scripts/evaluate.py
+
+# Stress test (4 peak scenarios)
+python stress_test.py
+```
+
+---
+
+## Results
+
+Evaluated on real Alibaba cluster trace data (5 episodes × 3 seeds):
+
+| Method | SLA Rate | Cost Efficiency | CPU Utilisation | Stability |
+|--------|----------|-----------------|-----------------|-----------|
+| **AutoCloud-Agent (Ours)** | **100%** | **0.962** | **55.2%** | 0.889 |
+| MPCController | 100% | 0.962 | 55.2% | 0.941 |
+| ThresholdReactive | 100% | 0.955 | 48.3% | 0.822 |
+| KubernetesHPA | 100% | 0.930 | 31.2% | 0.842 |
+| AWSTargetTracking | 100% | 0.928 | 29.5% | 0.876 |
+| SingleAgentPPO | 100% | 0.924 | 41.3% | 0.794 |
+| StaticN (do-nothing) | 100% | 0.938 | 33.3% | 1.000 |
+
+**Key findings:**
+- AutoCloud-Agent matches the best classical method (MPC) on cost and CPU efficiency
+- **3.4% cheaper** than Kubernetes HPA, **77% better CPU utilisation** than AWS Target Tracking
+- Multi-agent I-PPO beats single-agent PPO across all metrics (confirming the value of decomposition)
 
 ---
 
 ## Architecture
 
 ```
-Alibaba Trace → WorkloadTransformer (MC Dropout)
-                        │ forecast (mean + uncertainty)
-                        ▼
-              ┌─── CloudEnv (SimPy M/G/c) ───┐
-              │  ScaleOut   (every 10 steps)  │
-              │  Consolidation (every 2 steps)│  ← I-PPO
-              │  Scheduling   (every step)    │
-              └──────────┬───────────────────┘
-                         ▼
-               SafetyCoordinator (4 filters)
-                         ▼
-                   env.step(action)
+┌─────────────────────────────────────────────────────┐
+│                  Observation (215-dim)                │
+│  120 node features + 80 job features + 15 globals    │
+└────────┬────────────────┬────────────────┬───────────┘
+         │                │                │
+    ┌────▼────┐     ┌─────▼─────┐    ┌────▼────┐
+    │ScaleOut │     │Consolidat.│    │Scheduling│
+    │ Agent   │     │  Agent    │    │  Agent   │
+    │(every   │     │(every     │    │(every    │
+    │ 10 step)│     │ 2 steps)  │    │  step)   │
+    └────┬────┘     └─────┬─────┘    └────┬────┘
+         │                │               │
+    ┌────▼────────────────▼───────────────▼────┐
+    │          Safety Coordinator               │
+    │  5 filters: boot-protect, N_min floor,    │
+    │  uncertainty hold, anti-overlap,          │
+    │  proactive scale-out                      │
+    └─────────────────┬────────────────────────┘
+                      │
+              ┌───────▼───────┐
+              │Cloud Simulator│  ← Alibaba trace
+              │  (Gymnasium)  │     workload data
+              └───────────────┘
 ```
 
-| Component | Description |
-|-----------|-------------|
-| **ScaleOut Agent** | Discrete(3) — provision 0/1/2 nodes, acts on 10-step cadence or CPU emergency |
-| **Consolidation Agent** | MultiBinary(20) — drain idle nodes, filtered by Safety Coordinator |
-| **Scheduling Agent** | Per-job priority reordering (pointer-network style) |
-| **Safety Coordinator** | Boot-protect · N_min floor · Uncertainty suppression · Scale-out suppression |
-| **Forecaster** | Transformer encoder → quantile predictions at t+1/5/10/15 with MC Dropout uncertainty |
-| **AutoResearch** | LLM rewrites `experiment.py` each iteration, runs trial, keeps or discards |
-| **Live Adaptation** | Streams live traffic into rolling buffer → fine-tunes agents every N minutes |
-
----
-
-## Results
-
-Evaluated across 3 seeds × 10 episodes against 7 baselines on Alibaba 2018 cluster trace (Day 2):
-
-| Method | SLA Rate | Cost Efficiency | CPU Utilisation | Node Stability |
-|--------|----------|-----------------|-----------------|----------------|
-| **AutoCloud-Agent** | **100.0%** | **0.962** | **55.2%** | **0.912** |
-| ThresholdPredictive | 100.0% | 0.961 | 54.6% | 0.910 |
-| PIController | 100.0% | 0.956 | 51.4% | 0.718 |
-| ThresholdReactive | 100.0% | 0.955 | 48.3% | 0.822 |
-| ARIMAPredictive | 100.0% | 0.954 | 48.0% | 0.816 |
-| StaticN (10 nodes) | 100.0% | 0.938 | 33.3% | 1.000 |
-| KubernetesHPA | 100.0% | 0.930 | 31.2% | 0.842 |
-| SingleAgentPPO | 100.0% | 0.924 | 41.0% | 0.787 |
-
-SLA threshold: P95 latency < 500ms. Training: 300k steps on Alibaba Day 1 trace (Kaggle T4 GPU).
-AutoCloud-Agent leads on cost efficiency and node stability while maximising CPU utilisation.
-
----
-
-## Quickstart
-
-### 1 — Install
-
-```bash
-pip install simpy gymnasium torch numpy matplotlib pandas
-pip install groq        # for AutoResearch (free API key at console.groq.com)
-```
-
-### 2 — Train (Kaggle, GPU recommended)
-
-Open in order on Kaggle:
-1. `notebooks/train_forecaster.ipynb` — trains Transformer forecaster
-2. `notebooks/train_rl_agents.ipynb` — trains 3 I-PPO agents (300k steps, ~3h on T4)
-
-Download `outputs/` folder to your local machine.
-
-### 3 — Evaluate locally
-
-```bash
-python pipeline.py \
-  --checkpoint_dir ../outputs/rl_agents \
-  --workload_file  ../outputs/train_Forecaster/day2_processed.npy
-# Output: evaluation_results.json + printed comparison table
-```
-
-### 4 — AutoResearch (offline reward tuning)
-
-```bash
-export GROQ_API_KEY=gsk_...        # free key from console.groq.com
-python pipeline.py --mode autoresearch --llm_provider groq \
-  --checkpoint_dir ../outputs/rl_agents \
-  --workload_file  ../outputs/train_Forecaster/day2_processed.npy \
-  --ar_steps 25000 --ar_iterations 4
-```
-
-The LLM reads `experiment.py` + trial history, proposes reward weight changes, runs a trial, keeps or discards — Karpathy-style.
-
-### 5 — Live Adaptation (continuous tuning from live traffic)
-
-```bash
-python pipeline.py --mode live --llm_provider groq \
-  --checkpoint_dir ../outputs/rl_agents \
-  --workload_file  ../outputs/train_Forecaster/day2_processed.npy \
-  --live_interval 3 --live_iterations 5 --live_steps 6000
-```
-
-Streams the Alibaba Day 2 trace at **24x compression** (1 day plays in 1 hour).
-Every 3 minutes real-time (~72 min of simulated traffic), the LLM sees current
-utilisation stats and proposes reward weight updates. Agents are fine-tuned from
-existing checkpoints — not retrained from scratch. Best config is promoted live.
-
-For a full 1-hour run (6 iterations × 10 min):
-```bash
-python pipeline.py --mode live --llm_provider groq \
-  --checkpoint_dir ../outputs/rl_agents \
-  --workload_file  ../outputs/train_Forecaster/day2_processed.npy \
-  --live_interval 10 --live_iterations 6 --live_steps 8000
-```
-
-### 6 — Demo notebook
-
-```bash
-jupyter notebook notebooks/demo.ipynb
-```
-
-Covers: live simulation visualisation · baseline comparison charts · AutoResearch loop.
+The **Workload Forecaster** (Transformer + MC Dropout) predicts demand 1–15 steps ahead and provides uncertainty estimates that feed into both the observation and the Safety Coordinator.
 
 ---
 
@@ -129,65 +84,88 @@ Covers: live simulation visualisation · baseline comparison charts · AutoResea
 
 ```
 autocloud_agent/
-├── pipeline.py        ← main entry point  (eval / autoresearch / live)
-├── train.py           ← training script   (called by AutoResearch internally)
-├── experiment.py      ← single file the LLM modifies (reward weights + PPO params)
-├── program.md         ← AutoResearch research directives (human-editable)
+├── demo.py                 ← Live demo (RL agent vs Kubernetes HPA)
+├── stress_test.py          ← 4 stress scenarios
+├── train.py                ← Training entry point
+├── pyproject.toml          ← Package config (pip install -e .)
+├── design_doc.tex/.pdf     ← LaTeX design document
 │
-├── src/               ← all source code
-│   ├── agents/        ← ScaleOut, Consolidation, Scheduling agents + shared PPO
-│   ├── configs/       ← Config dataclasses (SimConfig, PPOConfig, RewardConfig)
-│   ├── coordinator/   ← SafetyCoordinator (4-filter hierarchical safety gate)
-│   ├── environment/   ← SimPy simulator, CloudEnv, workload loader, LiveWorkloadBuffer
-│   ├── evaluation/    ← Evaluator (8 methods × 3 seeds × metrics)
-│   ├── forecaster/    ← WorkloadTransformer + MCDropoutForecaster
-│   ├── training/      ← IPPOTrainer, 7 baselines, EMA normaliser
-│   └── autoresearch/  ← LLM engine, subprocess runner, live adaptation loop
+├── scripts/
+│   └── evaluate.py         ← CLI evaluation (auto-detects checkpoints)
 │
-└── notebooks/
-    ├── train_forecaster.ipynb   ← Kaggle: train Transformer forecaster
-    ├── train_rl_agents.ipynb    ← Kaggle: train 3 I-PPO agents (300k steps)
-    ├── results.ipynb            ← plot learning curves + baseline comparison
-    ├── multiday_eval.ipynb      ← evaluate across all 7 Alibaba days
-    └── demo.ipynb               ← live visualisation + AutoResearch demo
+├── autocloud/              ← Installable Python package
+│   ├── config/
+│   │   ├── settings.py     ← All hyperparameters (dataclasses)
+│   │   └── paths.py        ← Auto-discovers checkpoints & data files
+│   ├── simulator/
+│   │   ├── cloud_env.py    ← Gymnasium environment (obs=215, actions=3)
+│   │   ├── engine.py       ← SimPy discrete-event simulation
+│   │   ├── node.py         ← VM model (BOOTING→ACTIVE→DRAINING→TERMINATED)
+│   │   ├── job.py          ← Job dataclass
+│   │   └── workload.py     ← Alibaba trace loader + synthetic fallback
+│   ├── agents/
+│   │   ├── ppo.py          ← Base PPO algorithm (GAE, clipping, entropy)
+│   │   ├── scaleout.py     ← ScaleOut agent (Discrete(3))
+│   │   ├── consolidation.py← Consolidation agent (MultiBinary(20))
+│   │   ├── scheduling.py   ← Scheduling agent (Discrete(5), weight-tied)
+│   │   └── loader.py       ← Load all 3 agents from checkpoints
+│   ├── forecaster/
+│   │   ├── transformer_model.py  ← WorkloadTransformer (2-layer, 4-head)
+│   │   └── mc_dropout.py   ← MC Dropout uncertainty (30 forward passes)
+│   ├── coordinator/
+│   │   └── safety.py       ← 5-filter Safety Coordinator
+│   ├── inference/
+│   │   └── runner.py       ← InferenceRunner (ties everything together)
+│   ├── evaluation/
+│   │   ├── evaluator.py    ← Multi-seed evaluation harness
+│   │   └── baselines.py    ← 6 SOTA baselines
+│   └── training/
+│       ├── ippo_trainer.py ← I-PPO training loop
+│       └── ema_normalizer.py ← EMA reward normalisation
+│
+├── notebooks/              ← Kaggle training notebooks
+│   ├── train_forecaster.ipynb
+│   ├── train_rl_agents.ipynb
+│   ├── results.ipynb
+│   └── demo.ipynb
+│
+└── tests/
+    ├── test_simulator.py
+    ├── test_ppo.py
+    ├── test_coordinator.py
+    └── test_transformer.py
 ```
+
+---
+
+## Training (GPU required — use Kaggle)
+
+1. **Train Forecaster:** Run `notebooks/train_forecaster.ipynb` on Kaggle (~20 min on T4 GPU)
+   → saves `forecaster_weights.pt` + `day2_processed.npy`
+
+2. **Train RL Agents:** Run `notebooks/train_rl_agents.ipynb` on Kaggle (~30 min on T4 GPU)
+   → saves 6 checkpoint files (`so_actor_final.pt`, etc.)
+
+3. **Download** the `outputs/` folder from Kaggle and evaluate locally (no GPU needed).
 
 ---
 
 ## Dataset
 
-[Alibaba 2018 Cluster Trace](https://github.com/alibaba/clusterdata) — 4023 machines, 7 days.
-The workload loader (`environment/workload.py`) preprocesses CPU/mem utilization into 30-second bins.
-Agents are trained on Day 1 (~25% avg util) and evaluated on Day 2 (30–60% util, unseen distribution).
+Real data from **Alibaba Cluster Trace 2018** — 4,023 machines, 7 days of CPU/memory measurements.
+- Binned into 30-second intervals → 2,880 snapshots per day
+- Day 1 used for training; Days 2–7 for testing
+- Dataset: [github.com/alibaba/clusterdata](https://github.com/alibaba/clusterdata)
 
 ---
 
-## Key Design Decisions
+## Baselines
 
-- **Temporal hierarchy**: agents act at different timescales (1 / 2 / 10 steps) matching real cluster control loops
-- **Independent buffers**: each agent's PPO update fires when its own buffer fills — scheduling fills 10× faster than scale-out
-- **Safety first**: coordinator filters run before every action; scale-out is never blocked, consolidation is heavily gated
-- **MC Dropout uncertainty**: forecaster uncertainty feeds directly into coordinator — high σ suppresses all drain actions
-- **Live adaptation**: rolling buffer streams real traffic; LLM detects utilisation shifts and adjusts reward weights in minutes
-
----
-
-## AutoResearch
-
-Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch).
-
-**Offline mode** (`--mode autoresearch`): LLM reads `experiment.py` + history, proposes a full rewrite,
-runs a fresh trial, keeps or discards based on `score = SLA_rate − 0.1 × cost`.
-
-**Live mode** (`--mode live`): Same loop but driven by a rolling buffer of live traffic measurements.
-The LLM receives current CPU utilisation stats and adjusts weights accordingly — high traffic shifts
-weights toward SLA protection, low traffic toward cost reduction. Agents fine-tune from existing
-checkpoints rather than training from scratch, so each iteration takes minutes not hours.
-
-Works with Groq (free), Ollama (local), Gemini (free tier), or Anthropic.
-
----
-
-## License
-
-MIT
+| Category | Method | Description |
+|----------|--------|-------------|
+| **Industry** | KubernetesHPA | k8s HPA formula with 10% dead-band |
+| **Industry** | AWSTargetTracking | AWS policy with asymmetric cooldowns |
+| **Control theory** | MPCController | 5-step MPC with EWM forecast (AWARE baseline) |
+| **Rule-based** | ThresholdReactive | CPU > 80% → add; CPU < 30% → drain |
+| **RL ablation** | SingleAgentPPO | One agent for all 3 actions (shows I-PPO advantage) |
+| **Lower bound** | StaticN | Fixed 10 nodes, never scales |

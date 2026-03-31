@@ -21,19 +21,16 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import json
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from configs.default_config import DEFAULT_CONFIG, Config
-from environment.cloud_env import CloudEnv
-from training.baselines import (StaticN, ThresholdReactive, ThresholdPredictive,
-                                SingleAgentPPO, KubernetesHPA, PIController, ARIMAPredictive,
-                                AWSTargetTracking, MPCController, PIDDerivative, BurstAwareScaler)
-from training.ippo_trainer import IPPOTrainer
+from autocloud.config.settings import DEFAULT_CONFIG, Config
+from autocloud.simulator.cloud_env import CloudEnv
+from autocloud.evaluation.baselines import (StaticN, ThresholdReactive,
+                                SingleAgentPPO, KubernetesHPA,
+                                AWSTargetTracking, MPCController)
+from autocloud.inference.runner import InferenceRunner
 
 
 # ------------------------------------------------------------------ #
@@ -58,21 +55,7 @@ def run_episode(policy, env: CloudEnv, config: Config) -> Dict[str, float]:
     latencies = []
 
     while not done:
-        # Get action from policy
-        if hasattr(policy, "select_action"):
-            # Baselines interface
-            action = policy.select_action(obs, env)
-        else:
-            # IPPOTrainer interface — call each agent
-            a_so, _, _  = policy.so_agent.act(obs)
-            mask = env.get_active_mask()
-            a_con, _, _ = policy.con_agent.act(obs, mask)
-            a_sch, _, _ = policy.sch_agent.act(obs)
-            action = {
-                "scaleout":      int(a_so),
-                "consolidation": a_con,
-                "scheduling":    a_sch,
-            }
+        action = policy.select_action(obs, env)
 
         obs, _, terminated, truncated, info = env.step(action)
         done = terminated or truncated
@@ -152,12 +135,12 @@ class Evaluator:
                 f"Missing RL checkpoints in '{self.checkpoint_dir}': {missing}"
             )
 
-    def _make_autocloud(self, seed: int) -> IPPOTrainer:
-        trainer = IPPOTrainer(config=self.config, seed=seed, device="cpu", verbose=False)
-        tag = "final"
-        self._validate_autocloud_checkpoints(tag=tag)
-        trainer.load(self.checkpoint_dir, tag=tag)
-        return trainer
+    def _make_autocloud(self, seed: int):
+        return InferenceRunner(
+            checkpoint_dir=self.checkpoint_dir,
+            config=self.config,
+            device="cpu",
+        )
 
     def _make_single_ppo(self, seed: int) -> SingleAgentPPO:
         agent = SingleAgentPPO(device="cpu")
@@ -165,9 +148,6 @@ class Evaluator:
 
     def _make_threshold_reactive(self) -> ThresholdReactive:
         return ThresholdReactive()
-
-    def _make_threshold_predictive(self) -> ThresholdPredictive:
-        return ThresholdPredictive()
 
     def _make_static_n(self) -> StaticN:
         return StaticN(n_nodes=10)
@@ -209,19 +189,13 @@ class Evaluator:
             # Industry-standard autoscalers
             "KubernetesHPA":       lambda s: KubernetesHPA(),
             "AWSTargetTracking":   lambda s: AWSTargetTracking(),
-            # Classical control theory
-            "PIController":        lambda s: PIController(),
-            "PIDDerivative":       lambda s: PIDDerivative(),
-            # Statistical / predictive
-            "ARIMAPredictive":     lambda s: ARIMAPredictive(),
+            # Strongest non-RL baseline
             "MPCController":       lambda s: MPCController(),
-            # Rule-based
-            "BurstAwareScaler":    lambda s: BurstAwareScaler(),
+            # Classic rule-based
             "ThresholdReactive":   lambda s: self._make_threshold_reactive(),
-            "ThresholdPredictive": lambda s: self._make_threshold_predictive(),
-            # Deep RL baseline
+            # Deep RL ablation (single-agent vs multi-agent)
             "SingleAgentPPO":      lambda s: self._make_single_ppo(s),
-            # Do-nothing baseline
+            # Do-nothing lower bound
             "StaticN":             lambda s: self._make_static_n(),
         }
 

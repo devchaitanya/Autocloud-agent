@@ -38,7 +38,7 @@ from __future__ import annotations
 import numpy as np
 from typing import List, Tuple, Optional, Dict
 
-from environment.node import Node, NodeState
+from autocloud.simulator.node import Node, NodeState
 
 
 class SafetyCoordinator:

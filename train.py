@@ -13,16 +13,12 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import json
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
-
-from configs.default_config import DEFAULT_CONFIG
-from training.ippo_trainer import IPPOTrainer
-from forecaster.transformer_model import WorkloadTransformer
-from forecaster.mc_dropout import MCDropoutForecaster
+from autocloud.config.settings import DEFAULT_CONFIG
+from autocloud.config.paths import ArtifactPaths
+from autocloud.training.ippo_trainer import IPPOTrainer
 
 
 def parse_args():
@@ -45,18 +41,8 @@ def parse_args():
 
 
 def load_forecaster(path, device):
-    if path is None or not os.path.exists(path):
-        return None
-    model = WorkloadTransformer(
-        input_dim=4, d_model=64, n_heads=4, d_ff=256, n_layers=2,
-        dropout=0.2, seq_len=20, n_horizons=4,
-    )
-    import torch
-    model.load_state_dict(torch.load(path, map_location=device))
-    model.to(device)
-    forecaster = MCDropoutForecaster(model, k_samples=30, device=device)
-    print(f"[info] Forecaster loaded from {path}")
-    return forecaster
+    paths = ArtifactPaths(forecaster_path=path)
+    return paths.load_forecaster(device=device)
 
 
 def quick_eval(trainer, n_episodes=5):
@@ -67,11 +53,7 @@ def quick_eval(trainer, n_episodes=5):
         done = False
         ep_return, ep_sla, ep_steps = 0.0, 0, 0
         while not done:
-            a_so, _, _  = trainer.so_agent.act(obs)
-            mask = env.get_active_mask()
-            a_con, _, _ = trainer.con_agent.act(obs, mask)
-            a_sch, _, _ = trainer.sch_agent.act(obs)
-            action = {"scaleout": int(a_so), "consolidation": a_con, "scheduling": int(a_sch)}
+            action = trainer.select_action(obs, env)
             obs, _, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             ep_return += sum(info["rewards"].values())

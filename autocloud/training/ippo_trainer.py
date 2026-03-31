@@ -16,21 +16,18 @@ Agents fill at very different rates: scheduling fills ~10× faster than scaleout
 from __future__ import annotations
 
 import os
-import sys
 import numpy as np
 import torch
 from typing import Optional, Dict, List
 from dataclasses import dataclass, field
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from environment.cloud_env import CloudEnv
-from agents.scaleout_agent import ScaleOutAgent
-from agents.consolidation_agent import ConsolidationAgent
-from agents.scheduling_agent import SchedulingAgent
-from coordinator.safety_coordinator import SafetyCoordinator
-from training.ema_normalizer import AgentRewardTracker
-from configs.default_config import Config, DEFAULT_CONFIG
+from autocloud.simulator.cloud_env import CloudEnv
+from autocloud.agents.scaleout import ScaleOutAgent
+from autocloud.agents.consolidation import ConsolidationAgent
+from autocloud.agents.scheduling import SchedulingAgent
+from autocloud.coordinator.safety import SafetyCoordinator
+from autocloud.training.ema_normalizer import AgentRewardTracker
+from autocloud.config.settings import Config, DEFAULT_CONFIG
 
 
 @dataclass

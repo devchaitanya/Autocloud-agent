@@ -22,10 +22,10 @@ import gymnasium as gym
 from gymnasium import spaces
 from typing import Optional, Dict, Any, Tuple
 
-from .simulator import CloudSimulator
+from .engine import CloudSimulator
 from .workload import SyntheticWorkload
 from .node import NodeState, NODE_TYPES
-from configs.default_config import Config, DEFAULT_CONFIG
+from autocloud.config.settings import Config, DEFAULT_CONFIG
 
 
 # Observation dimension constants

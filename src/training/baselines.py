@@ -31,7 +31,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from environment.cloud_env import CloudEnv, OBS_DIM
 from agents.ppo import PPO, build_mlp, orthogonal_init
 from torch.distributions import Categorical, Bernoulli
-from configs.default_config import DEFAULT_CONFIG
 
 
 N_MAX  = 20

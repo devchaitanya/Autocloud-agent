@@ -18,16 +18,14 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
-
-from configs.default_config import DEFAULT_CONFIG
-from environment.cloud_env import CloudEnv
-from training.ippo_trainer import IPPOTrainer
-from training.baselines import (KubernetesHPA, ThresholdReactive, StaticN,
-                                AWSTargetTracking, MPCController, PIDDerivative, BurstAwareScaler)
+from autocloud.config.settings import DEFAULT_CONFIG
+from autocloud.config.paths import ArtifactPaths
+from autocloud.simulator.cloud_env import CloudEnv
+from autocloud.inference.runner import InferenceRunner
+from autocloud.evaluation.baselines import (KubernetesHPA, ThresholdReactive, StaticN,
+                                AWSTargetTracking, MPCController)
 
 
 # ─── Scenario builders ────────────────────────────────────────────────────────
@@ -119,13 +117,7 @@ def run_episode(policy, config, workload_fn, seed: int = 42):
     done = False
     sla_steps, total_steps = 0, 0
     while not done:
-        if hasattr(policy, 'select_action'):
-            action = policy.select_action(obs, env)
-        else:
-            a_so,  _, _ = policy.so_agent.act(obs)
-            a_con, _, _ = policy.con_agent.act(obs, env.get_active_mask())
-            a_sch, _, _ = policy.sch_agent.act(obs)
-            action = {'scaleout': int(a_so), 'consolidation': a_con, 'scheduling': int(a_sch)}
+        action = policy.select_action(obs, env)
         obs, _, terminated, truncated, info = env.step(action)
         done = terminated or truncated
         m = info['metrics']
@@ -146,11 +138,8 @@ def evaluate_scenario(name, profile_str, workload_fn, trainer, config, seeds=(0,
         # Industry-standard
         'KubernetesHPA':     KubernetesHPA(),
         'AWSTargetTracking': AWSTargetTracking(),
-        # Classical control
-        'PIDerivative':      PIDDerivative(),
+        # Strongest non-RL baseline
         'MPCController':     MPCController(),
-        # Burst-aware heuristic
-        'BurstAwareScaler':  BurstAwareScaler(),
         'ThresholdReactive': ThresholdReactive(),
         # Do-nothing
         'StaticN(10)':       StaticN(10),
@@ -196,11 +185,9 @@ def print_scenario(name, profile_str, what_it_tests, results):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--checkpoint_dir",  default="checkpoints")
+    p.add_argument("--checkpoint_dir",  default=None)
     p.add_argument("--workload_file",   default=None,
                    help="Path to day2_processed.npy (needed for Scenario 1)")
-    p.add_argument("--stress_dir",      default=None,
-                   help="Dir with real .npy windows from extract_stress_windows.ipynb")
     p.add_argument("--seeds",           type=int, nargs="+", default=[0, 1, 2])
     p.add_argument("--scenarios",       type=int, nargs="+", default=[1, 2, 3, 4],
                    help="Which scenarios to run (default: all)")
@@ -211,58 +198,51 @@ def main():
     args = parse_args()
     config = DEFAULT_CONFIG
 
+    # ── Resolve artifact paths automatically ───────────────────────
+    paths = ArtifactPaths(
+        checkpoint_dir=args.checkpoint_dir,
+        workload_file=args.workload_file,
+    )
+    paths.validate_checkpoints()
+
     print("\n AutoCloud-Agent Stress Test")
-    print(f" Checkpoints : {args.checkpoint_dir}")
+    print(f" Checkpoints : {paths.checkpoint_dir}")
     print(f" Seeds       : {args.seeds}")
     print(f" Scenarios   : {args.scenarios}")
 
-    # Load trained agents
-    trainer = IPPOTrainer(config=config, seed=0, device='cpu', verbose=False)
-    ckpt_path = os.path.join(args.checkpoint_dir, 'so_actor_final.pt')
-    if os.path.exists(ckpt_path):
-        trainer.load(args.checkpoint_dir, tag='final')
-        print(f" Checkpoints loaded from {args.checkpoint_dir}\n")
-    else:
-        print(f" WARNING: no checkpoints at {args.checkpoint_dir} — using random weights\n")
+    # Load trained agents via InferenceRunner
+    trainer = InferenceRunner(
+        checkpoint_dir=paths.checkpoint_dir,
+        config=config,
+        device='cpu',
+    )
+    print(f" Checkpoints loaded from {paths.checkpoint_dir}\n")
 
-    def _real_or_synthetic(real_name, synthetic_fn):
-        """Use real .npy from stress_dir if available, otherwise synthetic."""
-        if args.stress_dir:
-            p = os.path.join(args.stress_dir, real_name)
-            if os.path.exists(p):
-                data  = np.load(p)
-                rates = data[:, 0] if data.ndim > 1 else data
-                tag   = f"REAL  mean={rates.mean():.2f}  peak={rates.max():.2f}"
-                return _make_fn(rates), tag
-        fn, tag = synthetic_fn()
-        return fn, "SYNTHETIC  " + tag
+    # Use workload from ArtifactPaths for Scenario 1 if available
+    workload_file = str(paths.workload_file) if paths.workload_file else args.workload_file
 
     scenarios = {
         1: {
             'name': "Scenario 1 — Standard Ramp-Up (Day 2, steps 600-1000)",
             'tests': "Baseline generalisation to unseen data; SLA should stay 100%",
-            'build': lambda: scenario1_ramp_up(args.workload_file)
-                             if args.workload_file and os.path.exists(args.workload_file)
-                             else _real_or_synthetic("s1_rampup_day2_600_1000.npy",
-                                                     lambda: (None, "SKIPPED")),
+            'build': lambda: scenario1_ramp_up(workload_file)
+                             if workload_file and os.path.exists(workload_file)
+                             else (None, "SKIPPED — no workload file"),
         },
         2: {
             'name': "Scenario 2 — Early Shock (Days 5 & 6, steps 0-400)",
             'tests': "Forecaster uncertainty spike + reactive ScaleOut under surprise burst",
-            'build': lambda: _real_or_synthetic("s2_earlyshock_day5_0_400.npy",
-                                                scenario2_early_shock),
+            'build': lambda: scenario2_early_shock(),
         },
         3: {
             'name': "Scenario 3 — Sustained Choppy Plateau (Days 3 & 4, steps 150-800)",
             'tests': "Consolidation anti-thrashing through rapid oscillating load",
-            'build': lambda: _real_or_synthetic("s3_choppy_day3_150_800.npy",
-                                                scenario3_choppy_plateau),
+            'build': lambda: scenario3_choppy_plateau(),
         },
         4: {
             'name': "Scenario 4 — Deep Trough + Recovery (Day 7, steps 1500-2880)",
             'tests': "Aggressive bin-packing at low load + smooth scale-up on recovery",
-            'build': lambda: _real_or_synthetic("s4_trough_day7_1500_2880.npy",
-                                                scenario4_trough_recovery),
+            'build': lambda: scenario4_trough_recovery(),
         },
     }
 

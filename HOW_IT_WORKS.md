@@ -1,628 +1,259 @@
-# AutoCloud-Agent — How It Works
+# How AutoCloud-Agent Works
 
-A complete explanation of every component: what it does, why it exists, and how it connects to everything else.
-
----
-
-## Big Picture
-
-```
-Alibaba Trace (real cloud data)
-         │
-         ▼
-  WorkloadTransformer          ← trains on historical CPU/mem patterns
-  (Forecaster)                 ← predicts next 1/5/10/15 steps
-         │
-         ▼ forecast (means + uncertainty)
-                    ┌─────────────────────────────────────┐
-                    │           CloudEnv (Gymnasium)       │
-                    │                                      │
-                    │   ┌─── SimPy Simulator ───────────┐  │
-                    │   │  Poisson arrivals              │  │
-                    │   │  LogNormal service times       │  │
-                    │   │  M/G/c queue                   │  │
-                    │   │  Node: Boot→Active→Drain→Dead  │  │
-                    │   └───────────────────────────────-┘  │
-                    │          observation (215-dim)        │
-                    └──────────────┬──────────────────────-─┘
-                                   │
-              ┌────────────────────┼──────────────────────┐
-              │                    │                       │
-              ▼                    ▼                       ▼
-     ScaleOutAgent        ConsolidationAgent       SchedulingAgent
-     (acts every 10       (acts every 2 steps)     (acts every step)
-      steps or on
-      emergency)
-              │                    │                       │
-              └────────────────────┼───────────────────────┘
-                                   │
-                                   ▼
-                          SafetyCoordinator
-                          (4 safety filters)
-                                   │
-                                   ▼
-                          CloudEnv.step(action)
-                                   │
-                          rewards + next observation
-                                   │
-                          PPO update (independently
-                          per agent when buffer fills)
-```
-
-And on top of all this:
-
-```
-AutoResearch Engine
-  │
-  ├── reads experiment.py   (current reward weights + PPO params)
-  ├── sends to LLM          (Claude / Llama / Gemini)
-  ├── LLM rewrites file     (proposes better reward weights)
-  ├── runs train.py trial   (2000 steps, ~2 min)
-  ├── score = SLA − 0.1×cost
-  └── KEEP if better, DISCARD if not  (Karpathy-style)
-```
+A plain-English explanation of every moving part — written for someone who knows basic ML but not reinforcement learning.
 
 ---
 
-## Component 1: The Simulation (`environment/simulator.py`)
+## 1. The Problem
 
-### What it is
-A **discrete-event simulation** of a cloud cluster using SimPy. SimPy is a Python library where you define processes that `yield` timeouts — it's like asyncio but for simulation time, not real time.
+A cloud provider runs a cluster of virtual machines (VMs). Users submit jobs that consume CPU and memory. The provider must decide **every 30 seconds**:
 
-### The queue model: M/G/c
-- **M** = Markovian (Poisson) arrivals — inter-arrival time is exponentially distributed
-- **G** = General service times — we use LogNormal(μ=2, σ=1), which mimics real job distributions (many short jobs, occasional long ones)
-- **c** = Number of servers (active nodes), which changes dynamically
+- **Scale-out:** Should we boot new VMs or shut down idle ones?
+- **Consolidation:** Which VMs should be drained (moving their jobs elsewhere) to save cost?
+- **Scheduling:** When a job arrives, which VM should it go to?
 
-### How a job lives
-```
-1. _arrivals() generates a job every ~0.5s (Poisson process)
-2. Job joins queue
-3. _try_dispatch() finds the least-loaded ACTIVE node with enough CPU+RAM
-4. _serve_job() runs as a SimPy process → yields timeout(service_time)
-5. On completion: resources freed, next queued job dispatched
-6. If node drains during service: job is interrupted, re-queued with is_migrated=True
-   (migrated jobs go to front of queue and keep remaining service time)
-```
+If you scale too aggressively → waste money on idle servers.
+If you scale too conservatively → jobs get dropped (SLA violation).
 
-### Node lifecycle
-```
-BOOTING (45s) → ACTIVE → DRAINING (30s grace period) → TERMINATED
-```
-
-During BOOTING: node costs money but accepts no jobs.
-During DRAINING: node costs money, accepts no new jobs, finishes current jobs.
-After grace period: any remaining jobs are forcibly migrated.
-
-### What each step looks like
-Each RL step = 30 seconds of simulation time:
-1. Simulator runs `env.run(until=now + 30s)`
-2. During those 30s, hundreds of arrivals happen and complete
-3. After step: we compute P95 latency, CPU util, cost, queue length
+**Goal:** Minimise cost while keeping SLA rate at 100%.
 
 ---
 
-## Component 2: The Observation Space (`environment/cloud_env.py`)
+## 2. Why Three Agents?
 
-Every step the environment returns a **215-dimensional vector** to all three agents:
+These three decisions operate at different time scales:
 
-```
-obs[0:120]   — 20 nodes × 6 features each
-              [cpu_util, mem_util, age_norm, is_booting, is_active, is_draining]
+| Agent | Action Space | Decision Frequency | Why Separate |
+|-------|-------------|-------------------|--------------|
+| **ScaleOut** | Discrete(3): add / hold / remove | Every 10 steps | Capacity planning is slow (VMs take 60s to boot) |
+| **Consolidation** | MultiBinary(20): drain flags per VM | Every 2 steps | Migration has medium latency |
+| **Scheduling** | Discrete(5): which scheduling rule | Every step | Job dispatch must be instant |
 
-obs[120:200] — 20 queued jobs × 4 features each
-              [size_norm, wait_norm, priority_norm, deadline_urgency]
-
-obs[200:215] — 15 global features
-              [active_count/20, mean_cpu, mean_mem, queue_len/50,
-               migrations/10, forecast_mean×4, forecast_sigma×4,
-               booting_count/20, draining_count/20]
-```
-
-All values are clipped to [0, 1].
-
-The **forecast features** (obs[205:215]) come from the Transformer forecaster — they tell the agents what workload is predicted 1/5/10/15 steps ahead, and how uncertain the prediction is.
+A single agent trying to learn all three simultaneously would need to explore a much larger joint action space. By decomposing, each agent has a focused, smaller problem. This is **Independent PPO (I-PPO)** — each agent has its own actor-critic network but they share the same reward signal and environment.
 
 ---
 
-## Component 3: The Three Agents
+## 3. The Observation Space (215 dimensions)
 
-### Agent 1 — ScaleOutAgent (`agents/scaleout_agent.py`)
+Every 30 seconds, the environment produces a vector of 215 numbers:
 
-**Job**: Decide how many new nodes to provision.
-
-**Action space**: Discrete(3) → {0, +1, +2} new nodes
-
-**Temporal hierarchy**: Acts every **10 steps** (every 5 minutes of sim time), OR immediately if:
-- Mean CPU > 90%, OR
-- Queue length > 80% of max
-
-This interrupt mechanism prevents the cluster from running out of capacity.
-
-**Network**: Actor + Critic, both MLP [512, 256, 128]
-
-**Reward**:
 ```
-r_scaleout = -α1 × max(0, cpu - 0.8)   # penalize high CPU
-           - α2 × max(0, 0.3 - cpu)    # penalize low CPU (waste)
-           - α3 × (n_active / 20)      # penalize running many nodes
-           - α4 × (action > 0)         # penalize each boot event
+obs[0:120]   → Node features (20 nodes × 6 features each)
+                - CPU utilisation, memory utilisation, number of running jobs,
+                  state (booting/active/draining), load trend, time alive
+
+obs[120:200] → Job queue features (20 jobs × 4 features each)
+                - CPU request, memory request, duration, priority
+
+obs[200:215] → Global features (15 values)
+                - total active nodes, cluster CPU/memory utilisation,
+                  SLA rate, queued jobs, forecast demand (5 horizons),
+                  forecast uncertainty
 ```
 
-### Agent 2 — ConsolidationAgent (`agents/consolidation_agent.py`)
+Each feature is normalised to [0, 1] so the neural network trains stably.
 
-**Job**: Decide which nodes to drain (shut down gracefully).
+---
 
-**Action space**: MultiBinary(20) → binary vector, one bit per node slot
+## 4. The Simulator
 
-**Temporal hierarchy**: Acts every **2 steps** (every 60s of sim time).
+The simulator (`autocloud/simulator/`) is a Gymnasium environment backed by a SimPy discrete-event engine:
 
-**Network**: Actor + Critic, both MLP [512, 256, 128]
+1. **Workload replay:** Reads real Alibaba trace data (`day2_processed.npy`), one 30-second snapshot at a time
+2. **Node lifecycle:** Each VM transitions through BOOTING (60s) → ACTIVE → DRAINING → TERMINATED
+3. **Job placement:** Jobs are assigned to nodes based on the Scheduling agent's chosen rule (Best-Fit, First-Fit, Round-Robin, Least-Loaded, Most-Loaded)
+4. **SLA checking:** A job is "dropped" if it cannot be placed within its deadline
 
-**Reward**:
+**Reward function** (shared by all 3 agents):
 ```
-r_consolidation = -β1 × step_cost       # penalize dollar cost
-                + β2 × sla_met          # reward meeting SLA (P95 < 500s)
-                - β3 × migrations       # penalize forced migrations
-                - β4 × max(0, mem-0.85) # penalize memory pressure
+reward = -α × (active_nodes / max_nodes)    ← cost penalty
+         -β × sla_violations                 ← SLA penalty
+         +γ × mean_cpu_utilisation           ← efficiency bonus
+         -δ × |active_nodes - prev_active|   ← stability penalty
 ```
 
-### Agent 3 — SchedulingAgent (`agents/scheduling_agent.py`)
+The agents learn to maximise this jointly.
 
-**Job**: Re-order the job queue by assigning priority buckets (0–4).
+---
 
-**Action space**: The agent assigns a priority to each of the top-20 queued jobs.
+## 5. The Forecaster
 
-**Temporal hierarchy**: Acts every **step**.
+The **Workload Forecaster** predicts CPU demand 1–15 steps ahead so agents can act proactively:
 
-**Network**: More complex — uses a pointer-network style architecture:
-- Global MLP processes the full observation: 135 → 128 → 128
-- Job MLP processes each job's features: 4 → 64
-- Score MLP combines them: 192 → 64 → 5 (priority bucket)
+- Architecture: 2-layer Transformer encoder (4 attention heads, d_model=64)
+- Input: last 30 snapshots of cluster CPU/memory (window = 30 × 30s = 15 min)
+- Output: predicted demand for next 15 steps
+- **Uncertainty:** MC Dropout (30 forward passes with dropout ON at inference) → mean prediction + standard deviation
 
-**Reward**:
+The 5 forecast horizons and the uncertainty estimate are injected into `obs[200:215]` (global features).
+
+Trained separately on Day 1 of the Alibaba trace (`notebooks/train_forecaster.ipynb`).
+
+---
+
+## 6. The Safety Coordinator
+
+Between the agents' raw actions and the environment, a **Safety Coordinator** (`autocloud/coordinator/safety.py`) applies 5 rule-based filters:
+
+| # | Filter | What It Does |
+|---|--------|-------------|
+| 1 | **Boot-protect** | Prevents draining a VM that is still booting (< 60s old) |
+| 2 | **N_min floor** | Ensures at least N_min=3 VMs are always active |
+| 3 | **Uncertainty hold** | If forecast uncertainty > threshold, blocks scale-down (wait for clarity) |
+| 4 | **Anti-overlap** | Prevents the ScaleOut agent from adding and Consolidation from draining in the same step |
+| 5 | **Proactive scale-out** | If forecast predicts demand spike in next 5 steps, forces a scale-out even if the ScaleOut agent said "hold" |
+
+These filters are **not learned** — they are hard-coded safety constraints. They override agent actions when needed.
+
+---
+
+## 7. Training Pipeline
+
+Training is done on Kaggle (free T4 GPU). Two phases:
+
+### Phase A: Train Forecaster (~20 minutes)
 ```
-r_scheduling = -γ1 × (mean_wait / 300)        # penalize long waits
-             - γ2 × max(0, p95/500 - 1)       # penalize SLA violation
+notebooks/train_forecaster.ipynb
+```
+- Loads Day 1 Alibaba trace → sliding window dataset → trains Transformer → saves `forecaster_weights.pt`
+
+### Phase B: Train RL Agents (~30 minutes)
+```
+notebooks/train_rl_agents.ipynb
+```
+- Uses `autocloud/training/ippo_trainer.py`
+- 500 episodes, γ=0.99, learning rate=3×10⁻⁴, clip ε=0.2
+- Each episode: simulate 1 day (2,880 steps × 30s = 24h)
+- EMA reward normalisation (`ema_normalizer.py`) for stable training
+- Saves 6 checkpoints: `{so,con,sch}_{actor,critic}_final.pt`
+
+### Phase C: Download & Evaluate Locally (CPU only)
+```bash
+pip install -e .
+python scripts/evaluate.py          # 7 methods × 5 episodes × 3 seeds
+python demo.py                      # interactive live demo
+python stress_test.py               # 4 peak-load scenarios
 ```
 
 ---
 
-## Component 4: Safety Coordinator (`coordinator/safety_coordinator.py`)
+## 8. PPO Algorithm — Simple Explanation
 
-### Why it exists
+PPO (Proximal Policy Optimisation) is the RL algorithm each agent uses. Here's the intuition:
 
-Without the coordinator, the Consolidation agent can make dangerous proposals:
-- Drain a node that just finished booting (wasted boot cost)
-- Drain so many nodes that the cluster falls below minimum capacity
-- Drain during high forecast uncertainty (risky if demand spikes)
-- Drain while simultaneously booting new nodes (contradictory)
+1. **Actor** network outputs a probability distribution over actions
+2. **Critic** network estimates "how good is this state?" (value function)
+3. After collecting a batch of (state, action, reward) tuples:
+   - Compute **advantage** = "was this action better or worse than average?" (using GAE)
+   - Update the actor to make good actions more likely, bad actions less likely
+   - **Clipping**: Don't change probabilities too much in one step (ratio stays in [1-ε, 1+ε])
+   - Also add an **entropy bonus** to encourage exploration early on
 
-The coordinator runs **4 filters in sequence** before any drain is applied:
-
-```
-Filter 1 — Boot Protection
-  └── Remove any node younger than (boot_time + 60s warmup)
-      Reason: fresh nodes have 0% CPU and look idle, but are prime drain targets for the wrong reasons
-
-Filter 2 — N_min Floor
-  └── If draining would leave < 3 active nodes:
-      Remove highest-CPU nodes from drain_set until floor is met
-      Reason: the cluster must keep minimum capacity
-
-Filter 3 — Uncertainty Suppression
-  └── If forecast uncertainty σ_{t+5} > 0.3:
-      Clear the entire drain_set
-      Reason: if we don't know what demand is coming, be conservative
-
-Filter 4 — Simultaneous Scale-Out Suppression
-  └── If ScaleOut just fired (action > 0):
-      Clear the entire drain_set
-      Reason: don't drain while booting — new capacity hasn't arrived yet
-```
-
-Scale-Out actions are **never blocked** — adding capacity is always safe.
-Scheduling actions are **always passed through** unchanged — priority assignment is always safe.
+Each of our 3 agents has its own actor + critic. They don't share parameters but they share the same reward.
 
 ---
 
-## Component 5: The Forecaster (`forecaster/`)
+## 9. Evaluation and Baselines
 
-### Why forecast?
+We compare AutoCloud-Agent against 6 methods:
 
-The agents can see current state but cannot see the future. The forecaster gives them a glimpse of what workload is coming, so they can act proactively instead of reactively.
+| Method | Type | How It Decides |
+|--------|------|---------------|
+| **StaticN** | Lower bound | Fixed 10 nodes, never changes |
+| **ThresholdReactive** | Rule-based | Add if CPU > 80%, drain if CPU < 30% |
+| **KubernetesHPA** | Industry | k8s HPA formula: `ceil(current × cpu_util / target_util)` with 10% dead-band |
+| **AWSTargetTracking** | Industry | AWS-style policy with asymmetric scale-up (1 min) / scale-down (5 min) cooldowns |
+| **MPCController** | Model-based | 5-step horizon MPC using exponentially-weighted moving average forecast |
+| **SingleAgentPPO** | RL ablation | One PPO agent making all 3 decisions (proves I-PPO decomposition helps) |
 
-### Architecture: WorkloadTransformer
+Evaluation protocol: 5 episodes × 3 random seeds, Alibaba Day 2 workload.
 
-A **Transformer encoder** trained on the Alibaba cluster trace:
-- Input: 20-step window of [CPU_util, mem_util, arrival_rate, queue_len]
-- Output: quantile predictions (q10, q50, q90) at horizons t+1, t+5, t+10, t+15
+### Results
 
-### MC Dropout for Uncertainty
+| Method | SLA | Cost Eff. | CPU Util. | Stability |
+|--------|-----|-----------|-----------|-----------|
+| **AutoCloud-Agent** | **100%** | **0.962** | **55.2%** | 0.889 |
+| MPCController | 100% | 0.962 | 55.2% | 0.941 |
+| ThresholdReactive | 100% | 0.955 | 48.3% | 0.822 |
+| StaticN | 100% | 0.938 | 33.3% | 1.000 |
+| KubernetesHPA | 100% | 0.930 | 31.2% | 0.842 |
+| AWSTargetTracking | 100% | 0.928 | 29.5% | 0.876 |
+| SingleAgentPPO | 100% | 0.924 | 41.3% | 0.794 |
 
-Instead of just predicting a point estimate, we use **Monte Carlo Dropout**:
-```
-Keep model in train() mode → dropout active
-Run K=30 forward passes on same input
-means  = average of 30 q50 predictions
-sigmas = variance across 30 predictions  ← epistemic uncertainty
-```
-
-High sigma means "the forecaster is unsure" → Coordinator Filter 3 fires → no draining.
-
----
-
-## Component 6: I-PPO Training (`training/ippo_trainer.py`)
-
-### What I-PPO means
-
-**Independent PPO**: Each agent has its own PPO instance, its own replay buffer, and updates independently. They share the environment but learn separately.
-
-Alternative would be MAPPO (Multi-Agent PPO) with a shared critic — we keep it independent for simplicity and stability.
-
-### Temporal hierarchy in training
-
-```
-global_step=0:  so acts, con acts, sch acts → store all three
-global_step=1:  so skips, con skips, sch acts → store only sch
-global_step=2:  so skips, con acts, sch acts → store con + sch
-...
-global_step=10: so acts, con skips, sch acts → store so + sch
-```
-
-Critical rule: **only store experience on steps when an agent actually acted**. Storing no-op steps would teach the agent that doing nothing is always the policy.
-
-### Buffer flushes are independent
-
-Each agent updates whenever its buffer fills (2048 transitions):
-- SchedulingAgent fills ~10× faster than ScaleOut (acts every step vs every 10)
-- Each agent's PPO update is triggered independently
-
-### Reward normalization (EMA)
-
-Raw rewards are normalized before storing:
-```
-normalized_reward = (raw_reward - ema_mean) / (ema_std + ε)
-```
-This prevents one agent's reward scale from dominating another's learning.
-
-### Entropy annealing
-
-Entropy coefficient starts at 0.01 and decays to 0.001 over 100k steps:
-```
-entropy = 0.01 × (1 - progress) + 0.001 × progress
-```
-Early training: high entropy → more exploration.
-Late training: low entropy → exploit learned policy.
-
-### Seed randomization
-
-Each episode resets with a different random seed (drawn from the trainer's RNG). This is crucial for **generalization** — the agent learns to handle many different workload patterns, not just one fixed scenario.
+AutoCloud-Agent matches the best classical method (MPC) while being **reactive** — MPC requires a hand-tuned forecast model, while our agent learns purely from experience.
 
 ---
 
-## Component 7: Evaluation (`evaluation/evaluator.py`)
+## 10. Stress Testing
 
-### 8 methods compared
+`stress_test.py` tests robustness under 4 extreme workload patterns:
 
-| Method | Description |
-|--------|-------------|
-| **AutoCloud-Agent** | Our I-PPO system (3 agents + forecaster + coordinator) |
-| **KubernetesHPA** | Kubernetes Horizontal Pod Autoscaler formula |
-| **PIController** | Classical proportional-integral controller |
-| **ARIMAPredictive** | Holt's double exponential smoothing for prediction |
-| **SingleAgentPPO** | Standard PPO with a single flat policy |
-| **ThresholdReactive** | Scale up if CPU > 80%, scale down if CPU < 30% |
-| **ThresholdPredictive** | Same but uses exponential smoothing of CPU trend |
-| **StaticN** | Fixed 10 nodes, never scales |
-
-### Metrics
-
-| Metric | Formula | Meaning |
-|--------|---------|---------|
-| SLA Rate | steps where P95 < 500s / total steps | Fraction of time meeting latency SLA |
-| Cost Efficiency | 1 − actual_cost / max_possible_cost | Higher = cheaper |
-| Mean CPU Util | average CPU across active nodes | How well-loaded the cluster is |
-| Node Stability | 1 − std(node_count) / mean(node_count) | How much the cluster oscillates |
+| Scenario | Pattern | What It Tests |
+|----------|---------|---------------|
+| **Ramp-up** | Load rises linearly 1× → 3× over 500 steps | Can the agent pre-emptively scale before saturation? |
+| **Early shock** | Normal → sudden 4× spike at step 50 | Recovery speed after unexpected burst |
+| **Choppy plateau** | Oscillating high load (2.5× ± random noise) | Stability under noisy signals |
+| **Trough + recovery** | Load drops to 0.3× then rebounds to 2.5× | Does the agent avoid premature scale-down? |
 
 ---
 
-## Component 8: AutoResearch (`autoresearch/`)
+## 11. Key Design Decisions
 
-### The Karpathy Inspiration
-
-Andrej Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) lets an LLM autonomously improve a GPT training script overnight:
-1. LLM modifies `train.py` (architecture, optimizer, hyperparams — anything)
-2. Runs for exactly 5 minutes (fixed time budget)
-3. Evaluates `val_bpb` (validation bits per byte)
-4. Keeps if better, reverts if not
-5. Loops forever — "wake up to 100 experiments"
-
-### How we apply it here
-
-Instead of modifying `train.py` (which is complex), we define a single simple file the LLM modifies: **`experiment.py`**.
-
-```
-experiment.py defines get_config() → all reward weights + PPO params
-```
-
-The loop:
-
-```
-Iteration 1:
-  LLM reads experiment.py (baseline values)
-  LLM reasons: "beta2=2.0 seems low for SLA bonus, try 3.0"
-  LLM writes new experiment.py with beta2=3.0
-  subprocess: python train.py --experiment_file tmp_exp.py --total_steps 2000
-  score = 0.9620
-  baseline was 0.9500 → KEEP → update experiment.py
-
-Iteration 2:
-  LLM reads experiment.py (now has beta2=3.0)
-  LLM reasons: "alpha1=2.0 might not be aggressive enough, try 3.0"
-  LLM writes new experiment.py with alpha1=3.0
-  subprocess: python train.py --experiment_file tmp_exp.py --total_steps 2000
-  score = 0.9480
-  best was 0.9620 → DISCARD → experiment.py stays as beta2=3.0
-
-...and so on for N iterations
-```
-
-### The key files
-
-```
-program.md      ← human writes this (research goal, what's tunable, strategy)
-experiment.py   ← LLM modifies this (the "train.py" analog from Karpathy)
-autoresearch/
-  engine.py     ← runs the loop, calls LLM, applies keep/discard logic
-  subprocess_runner.py  ← runs train.py in a subprocess, returns score
-  results.tsv   ← log of all trials (like Karpathy's results.tsv)
-```
-
-### What the LLM prompt looks like
-
-```
-You are an autonomous RL researcher improving AutoCloud-Agent.
-
-## Research Program
-[contents of program.md]
-
-## Current experiment.py (last kept version)
-[full Python code]
-
-## Trial History
-[KEEP] iter=1 score=+0.9620 sla=0.962 cost=0.0000 | +config.reward.beta2 = 3.0
-[DISC] iter=2 score=+0.9480 sla=0.948 cost=0.0000 | +config.reward.alpha1 = 3.0
-
-## Your Task — Iteration 3/4
-Propose ONE focused change. Return ONLY the complete Python file.
-```
-
-### Why reward weights, not architecture?
-
-1. The agents already use a well-sized network ([512, 256, 128])
-2. PPO hyperparameters (lr=3e-4, γ=0.99) are well-established defaults
-3. **Reward weights are project-specific** — there's no textbook answer for β2
-4. Changing β2 from 2.0 to 3.0 means "SLA compliance is 50% more important than cost" — this has a clear behavioral interpretation the LLM can reason about
+| Decision | Rationale |
+|----------|-----------|
+| **I-PPO over single agent** | 3-way decomposition reduces each agent's action space → faster convergence (+4% cost efficiency in eval) |
+| **Temporal hierarchy** | ScaleOut every 10 steps, Consolidation every 2, Scheduling every 1 — matches real-world latencies |
+| **Safety Coordinator** | RL can explore unsafe actions; hard constraints prevent catastrophic decisions |
+| **MC Dropout uncertainty** | Cheap uncertainty estimate (no ensemble needed) → enables uncertainty-aware safety filter |
+| **SimPy engine** | Discrete-event simulation is more realistic than fixed-step — events (boot, drain, job finish) happen at their real times |
 
 ---
 
-## Data Flow: End-to-End
-
-```
-1. Alibaba trace loaded → WorkloadTransformer trained → saved as forecaster_weights.pt
-
-2. IPPOTrainer starts:
-   - CloudEnv created (wraps SimPy simulator)
-   - 3 PPO agents created (so, con, sch)
-   - SafetyCoordinator created
-   - Each step:
-       a. MCDropoutForecaster.predict(obs) → means, sigmas
-       b. env.inject_forecast(means, sigmas)
-       c. so_agent.act(obs) every 10 steps
-       d. con_agent.act(obs, mask) every 2 steps
-       e. sch_agent.act(obs) every step
-       f. coordinator.resolve(a_so, a_con, a_sch, ...) → safe actions
-       g. env.step(safe_actions) → next_obs, rewards, info
-       h. Store experience in each agent's buffer
-       i. When buffer full → PPO update
-   - Save checkpoint every 10k steps
-
-3. Evaluator loads checkpoint → runs 10 episodes × 3 seeds × 8 methods
-   → prints comparison table
-
-4. AutoResearch:
-   - engine.py builds prompt (program.md + experiment.py + history)
-   - LLM returns new experiment.py
-   - subprocess_runner.py: python train.py --experiment_file tmp.py --steps 2000
-   - parse score from stdout
-   - keep or discard, log to results.tsv
-```
-
----
-
-## Free LLM Options (No Anthropic Key Needed)
-
-### Option 1 — Ollama (recommended, completely local)
-
-No API key. Runs on your machine. Free forever.
+## 12. Running Locally
 
 ```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
+# Prerequisites
+conda activate myenv
+pip install -e .                     # installs autocloud package
 
-# Pull a model (Llama 3.2 3B is small and fast enough for this)
-ollama pull llama3.2:3b
+# Interactive demo (best for showing to someone)
+python demo.py                       # default: 60 steps, normal speed
+python demo.py --speed fast          # faster for quick shows
+python demo.py --no-pause            # skip "press Enter" pauses
 
-# It starts a local server at http://localhost:11434
+# Full evaluation
+python scripts/evaluate.py           # 7 methods, 5 eps × 3 seeds (~5 min)
+
+# Stress test
+python stress_test.py                # 4 scenarios (~2 min)
+
+# Training (requires GPU — use Kaggle notebooks instead)
+python train.py                      # runs IPPOTrainer locally
 ```
 
-In `engine.py`, the engine now accepts `llm_provider="ollama"`.
-
-### Option 2 — Groq (free API key, cloud-based, very fast)
-
-Free tier: ~14,400 requests/day with Llama 3.1 70B.
-Sign up at https://console.groq.com (no credit card needed).
-
-```bash
-pip install groq
-export GROQ_API_KEY=gsk_your_key_here
-```
-
-In `engine.py`, use `llm_provider="groq"`.
-
-### Option 3 — Google Gemini (free API key)
-
-Free tier: 60 requests/minute with gemini-1.5-flash.
-Sign up at https://aistudio.google.com.
-
-```bash
-pip install google-generativeai
-export GEMINI_API_KEY=your_key_here
-```
-
-In `engine.py`, use `llm_provider="gemini"`.
+Checkpoints are auto-discovered from `checkpoints/` or `../outputs/rl_agents/`.
+Workload data is auto-discovered from `../outputs/train_Forecaster/`.
 
 ---
 
----
+## 13. File Reference
 
-## Running the Project
-
-### Complete Workflow
-
-```
-Step 1 (Kaggle — GPU needed)
-  train_forecaster.ipynb   → forecaster_weights.pt + day1_processed.npy
-
-Step 2 (Kaggle — GPU needed)
-  train_rl_agents.ipynb    → checkpoints/so_actor_final.pt (+ 5 other .pt files)
-
-Step 3 (Local — CPU fine)
-  Download from Kaggle outputs:
-    checkpoints/so_actor_final.pt
-    checkpoints/con_actor_final.pt
-    checkpoints/sch_actor_final.pt
-    checkpoints/so_critic_final.pt
-    checkpoints/con_critic_final.pt
-    checkpoints/sch_critic_final.pt
-    checkpoints/training_metrics.json
-    checkpoints/forecaster_weights.pt   (optional)
-    day1_processed.npy                  (optional, put in data/)
-
-Step 4 (Local — any machine)
-  python pipeline.py                              → evaluate 8 methods
-  python pipeline.py --mode autoresearch          → LLM reward tuning
-  jupyter notebook notebooks/demo.ipynb           → full demo
-```
-
-### Install dependencies (one-time)
-
-```bash
-pip install simpy gymnasium numpy torch matplotlib pandas
-
-# For AutoResearch with Groq (free, recommended):
-pip install groq
-export GROQ_API_KEY=gsk_...     # from console.groq.com
-
-# For AutoResearch with Ollama (local, no key):
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull llama3.2:3b
-ollama serve &
-```
-
-### `pipeline.py` — the main local entry point
-
-```bash
-# Evaluate trained agents vs all 7 baselines (default)
-python pipeline.py
-python pipeline.py --n_episodes 10 --seeds 0 1 2
-
-# Evaluate with real Alibaba workload
-python pipeline.py --workload_file data/day1_processed.npy
-
-# Run AutoResearch (LLM tunes reward weights in experiment.py)
-python pipeline.py --mode autoresearch --llm_provider groq
-python pipeline.py --mode autoresearch --llm_provider ollama
-python pipeline.py --mode autoresearch --ar_iterations 6 --ar_steps 3000
-
-# Eval + AutoResearch in one go
-python pipeline.py --mode all --llm_provider groq
-```
-
-### `train.py` — used by AutoResearch internally
-
-You don't normally call this directly. AutoResearch calls it in a subprocess.
-If you want to do a quick local training run (e.g., fine-tune with new reward weights):
-
-```bash
-python train.py --total_steps 5000 --seed 0              # synthetic workload, CPU ~5min
-python train.py --total_steps 5000 --experiment_file experiment.py
-```
-
-### Notebooks
-
-| Notebook | Where to run | What it does |
-|----------|-------------|--------------|
-| `train_forecaster.ipynb` | Kaggle (GPU) | Train Transformer forecaster on Alibaba trace |
-| `train_rl_agents.ipynb` | Kaggle (GPU) | Train 3 I-PPO agents for 300k steps |
-| `results.ipynb` | Local | Evaluate + compare vs baselines |
-| `multiday_eval.ipynb` | Kaggle | Test generalization across all 7 days |
-| `demo.ipynb` | Local | Full demo: simulation viz + comparison + AutoResearch |
-
----
-
-## Files Reference
-
-```
-autocloud_agent/
-│
-├── program.md                    ← Research directives (human edits this)
-├── experiment.py                 ← Config the LLM modifies (Karpathy's "train.py")
-├── train.py                      ← Training entry point
-│
-├── configs/
-│   └── default_config.py         ← All Config dataclasses (SimConfig, PPOConfig, RewardConfig, ...)
-│
-├── environment/
-│   ├── simulator.py              ← SimPy M/G/c queue, node lifecycle, job dispatch
-│   ├── cloud_env.py              ← Gymnasium wrapper: obs/action spaces, reward computation
-│   ├── node.py                   ← Node dataclass: BOOTING/ACTIVE/DRAINING/TERMINATED
-│   ├── job.py                    ← Job dataclass: arrival, service, migration
-│   └── workload.py               ← Alibaba trace loader + SyntheticWorkload
-│
-├── agents/
-│   ├── ppo.py                    ← Shared PPO implementation (actor, critic, buffer, update)
-│   ├── scaleout_agent.py         ← Discrete(3) action, MLP [512,256,128]
-│   ├── consolidation_agent.py    ← MultiBinary(20) action, MLP [512,256,128]
-│   └── scheduling_agent.py       ← Per-job priority, pointer-network style
-│
-├── coordinator/
-│   └── safety_coordinator.py     ← 4-filter safety gate for consolidation actions
-│
-├── forecaster/
-│   ├── transformer_model.py      ← WorkloadTransformer (quantile predictions)
-│   ├── mc_dropout.py             ← MCDropoutForecaster (K=30 passes → mean + sigma)
-│   └── trainer.py                ← Forecaster training loop
-│
-├── training/
-│   ├── ippo_trainer.py           ← I-PPO training loop with temporal hierarchy
-│   ├── baselines.py              ← 7 baseline policies
-│   └── ema_normalizer.py         ← EMA reward normalization
-│
-├── autoresearch/
-│   ├── engine.py                 ← Karpathy-style loop: LLM reads code → proposes → keep/discard
-│   ├── subprocess_runner.py      ← Runs train.py in subprocess, parses score
-│   ├── schema.py                 ← (legacy) JSON param validation
-│   └── results.tsv               ← Trial log (auto-generated)
-│
-├── evaluation/
-│   └── evaluator.py              ← Evaluates all 8 methods, prints table
-│
-└── notebooks/
-    ├── train_forecaster.ipynb    ← Step 1: train the Transformer forecaster
-    ├── train_rl_agents.ipynb     ← Step 2: train I-PPO agents
-    ├── results.ipynb             ← Step 3: evaluate and compare
-    ├── multiday_eval.ipynb       ← Step 4: test generalization across 7 days
-    └── demo.ipynb                ← Full demo: visualization + AutoResearch
-```
+| File | Purpose |
+|------|---------|
+| `autocloud/simulator/cloud_env.py` | Gymnasium environment |
+| `autocloud/simulator/engine.py` | SimPy simulation core |
+| `autocloud/agents/ppo.py` | PPO algorithm implementation |
+| `autocloud/agents/{scaleout,consolidation,scheduling}.py` | 3 specialised agents |
+| `autocloud/forecaster/transformer_model.py` | Workload Transformer |
+| `autocloud/forecaster/mc_dropout.py` | MC Dropout uncertainty |
+| `autocloud/coordinator/safety.py` | 5-filter Safety Coordinator |
+| `autocloud/inference/runner.py` | InferenceRunner (ties all components) |
+| `autocloud/evaluation/baselines.py` | 6 SOTA baselines |
+| `autocloud/evaluation/evaluator.py` | Multi-seed evaluation harness |
+| `autocloud/training/ippo_trainer.py` | I-PPO training loop |
+| `autocloud/config/settings.py` | All hyperparameters |
+| `autocloud/config/paths.py` | Auto-discovers checkpoints & data |
+| `demo.py` | Interactive live demo |
+| `stress_test.py` | 4-scenario stress test |
+| `scripts/evaluate.py` | CLI evaluation entry point |
+| `design_doc.tex` | LaTeX design document |
