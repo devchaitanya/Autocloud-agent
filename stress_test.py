@@ -28,7 +28,7 @@ from autocloud.evaluation.baselines import (KubernetesHPA, ThresholdReactive, St
                                 AWSTargetTracking, MPCController)
 
 
-# ─── Scenario builders ────────────────────────────────────────────────────────
+# Scenario builders
 
 def _make_fn(rates: np.ndarray, bin_size: int = 30):
     """Wrap a 1-D rates array into a CloudEnv-compatible workload_fn."""
@@ -107,7 +107,7 @@ def scenario4_trough_recovery(seed: int = 2):
     return _make_fn(rates), f"mean={rates.mean():.2f}  trough={trough.mean():.2f}  recovery_peak={ramp.max():.2f}"
 
 
-# ─── Episode runner ────────────────────────────────────────────────────────────
+# Episode runner
 
 def run_episode(policy, config, workload_fn, seed: int = 42):
     env = CloudEnv(config=config, seed=seed, workload_fn=workload_fn)
@@ -181,7 +181,7 @@ def print_scenario(name, profile_str, what_it_tests, results):
         )
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# Main
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -198,7 +198,7 @@ def main():
     args = parse_args()
     config = DEFAULT_CONFIG
 
-    # ── Resolve artifact paths automatically ───────────────────────
+    # Resolve artifact paths automatically
     paths = ArtifactPaths(
         checkpoint_dir=args.checkpoint_dir,
         workload_file=args.workload_file,

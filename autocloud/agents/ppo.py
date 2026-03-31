@@ -127,14 +127,14 @@ class PPO:
         if n == 0:
             return {}
 
-        # ── Compute last value for bootstrap ────────────────────────
+        # Compute last value for bootstrap
         with torch.no_grad():
             obs_t = torch.FloatTensor(last_obs).unsqueeze(0).to(self.device)
             last_value = self.critic(obs_t).squeeze().item()
         if last_done:
             last_value = 0.0
 
-        # ── Compute GAE advantages ───────────────────────────────────
+        # Compute GAE advantages
         advantages = np.zeros(n, dtype=np.float32)
         gae = 0.0
         for t in reversed(range(n)):
@@ -150,7 +150,7 @@ class PPO:
         adv_mean, adv_std = advantages.mean(), advantages.std() + 1e-8
         advantages = (advantages - adv_mean) / adv_std
 
-        # ── Stack tensors ─────────────────────────────────────────────
+        # Stack tensors
         obs_arr    = np.array([t.obs for t in transitions], dtype=np.float32)
         act_arr    = np.array([t.action for t in transitions], dtype=np.float32)
         logp_arr   = np.array([t.log_prob for t in transitions], dtype=np.float32)
@@ -168,7 +168,7 @@ class PPO:
         else:
             masks_t = None
 
-        # ── PPO update for `update_epochs` epochs ────────────────────
+        # PPO update for `update_epochs` epochs
         total_pg_loss = 0.0
         total_vf_loss = 0.0
         total_ent     = 0.0

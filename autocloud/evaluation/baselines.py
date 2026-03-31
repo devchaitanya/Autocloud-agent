@@ -28,9 +28,9 @@ N_MAX  = 20
 K_JOBS = 20
 
 
-# ═══════════════════════════════════════════════════════════════════
+# 
 # 1. Static-N  (do-nothing lower bound)
-# ═══════════════════════════════════════════════════════════════════
+# 
 
 class StaticN:
     """
@@ -50,9 +50,9 @@ class StaticN:
     def reset(self): pass
 
 
-# ═══════════════════════════════════════════════════════════════════
+# 
 # 2. Threshold-Reactive  (classic rule-based)
-# ═══════════════════════════════════════════════════════════════════
+# 
 
 class ThresholdReactive:
     """
@@ -112,9 +112,9 @@ class ThresholdReactive:
         self._last_scale_step = -self.cooldown_steps
 
 
-# ═══════════════════════════════════════════════════════════════════
+# 
 # 3. Kubernetes HPA  (industry standard)
-# ═══════════════════════════════════════════════════════════════════
+# 
 
 class KubernetesHPA:
     """
@@ -177,9 +177,9 @@ class KubernetesHPA:
         self._last_scaledown_step = -self.cooldown_steps
 
 
-# ═══════════════════════════════════════════════════════════════════
+# 
 # 4. AWS Target Tracking  (industry standard)
-# ═══════════════════════════════════════════════════════════════════
+# 
 
 class AWSTargetTracking:
     """
@@ -251,9 +251,9 @@ class AWSTargetTracking:
         self._cpu_history        = []
 
 
-# ═══════════════════════════════════════════════════════════════════
+# 
 # 5. MPC Controller  (strongest non-RL baseline)
-# ═══════════════════════════════════════════════════════════════════
+# 
 
 class MPCController:
     """
@@ -346,9 +346,9 @@ class MPCController:
         self._last_step = -self.cooldown_steps
 
 
-# ═══════════════════════════════════════════════════════════════════
+# 
 # 6. Single-Agent PPO  (RL ablation — shows value of multi-agent)
-# ═══════════════════════════════════════════════════════════════════
+# 
 
 class SingleAgentActor(nn.Module):
     """Joint actor: shared backbone → three action heads."""

@@ -74,7 +74,7 @@ def main():
     args = parse_args()
     np.random.seed(args.seed)
 
-    # ── Config: experiment.py override (AutoResearch) ──────────────
+    # Config: experiment.py override (AutoResearch)
     config = DEFAULT_CONFIG
     if args.experiment_file and os.path.exists(args.experiment_file):
         try:
@@ -90,7 +90,7 @@ def main():
 
     forecaster = load_forecaster(args.forecaster_path, args.device)
 
-    # ── Workload function ──────────────────────────────────────────────
+    # Workload function
     workload_fn = None
     if args.workload_file and os.path.exists(args.workload_file):
         data  = np.load(args.workload_file)
@@ -120,7 +120,7 @@ def main():
             print(f"  {k}: {v:.4f}")
         return
 
-    # ── Train ─────────────────────────────────────────────────────
+    # Train
     print(f"\n=== Training: {args.total_steps} steps | seed={args.seed} | device={args.device} ===\n")
     metrics = trainer.train(total_steps=args.total_steps, checkpoint_dir=args.checkpoint_dir)
     trainer.save(args.checkpoint_dir, tag="final")

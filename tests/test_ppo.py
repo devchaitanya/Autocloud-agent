@@ -27,9 +27,9 @@ def random_obs():
     return np.random.rand(OBS_DIM).astype(np.float32)
 
 
-# ─────────────────────────────────────────────
+# 
 # Agent act() tests
-# ─────────────────────────────────────────────
+# 
 
 class TestAgentAct:
     def test_scaleout_act_shape(self):
@@ -87,9 +87,9 @@ class TestAgentAct:
         assert log_prob == 0.0, f"Expected 0.0 for empty queue, got {log_prob}"
 
 
-# ─────────────────────────────────────────────
+# 
 # GAE computation test
-# ─────────────────────────────────────────────
+# 
 
 class TestGAE:
     def test_gae_correct_values(self):
@@ -143,9 +143,9 @@ class TestGAE:
                 f"GAE[{i}] = {advantages[i]:.4f}, expected {expected_advantages[i]:.4f}"
 
 
-# ─────────────────────────────────────────────
+# 
 # PPO update tests
-# ─────────────────────────────────────────────
+# 
 
 class TestPPOUpdate:
     def _fill_buffer(self, agent, mask=None):
@@ -210,9 +210,9 @@ class TestPPOUpdate:
         assert len(agent.buffer) == 0
 
 
-# ─────────────────────────────────────────────
+# 
 # EMA normalizer tests
-# ─────────────────────────────────────────────
+# 
 
 class TestEMANormalizer:
     def test_variance_nonzero(self):

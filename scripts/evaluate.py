@@ -35,7 +35,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # ── Resolve artifact paths automatically ───────────────────────
+    # Resolve artifact paths automatically
     paths = ArtifactPaths(
         checkpoint_dir=args.checkpoint_dir,
         workload_file=args.workload,

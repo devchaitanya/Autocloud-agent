@@ -20,9 +20,9 @@ from autocloud.config.settings import DEFAULT_CONFIG
 RNG = np.random.default_rng(42)
 
 
-# ─────────────────────────────────────────────
+# 
 # Simulator-level tests
-# ─────────────────────────────────────────────
+# 
 
 class TestNodeLifecycle:
     def _make_sim(self, seed=0):
@@ -136,9 +136,9 @@ class TestNodeLifecycle:
         assert sim.step_migrations >= 1, "Expected at least 1 migration"
 
 
-# ─────────────────────────────────────────────
+# 
 # CloudEnv (Gymnasium wrapper) tests
-# ─────────────────────────────────────────────
+# 
 
 class TestCloudEnv:
     def _make_env(self, seed=0):

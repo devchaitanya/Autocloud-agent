@@ -39,7 +39,7 @@ class ArtifactPaths:
         if self.forecaster_path is None:
             self.forecaster_path = self._find_forecaster()
 
-    # ── Resolution helpers ─────────────────────────────────────────
+    # Resolution helpers
 
     def _resolve_checkpoint_dir(self) -> str:
         candidates = [
@@ -78,7 +78,7 @@ class ArtifactPaths:
                 return str(c)
         return None
 
-    # ── Validation ─────────────────────────────────────────────────
+    # Validation
 
     def validate_checkpoints(self, tag: str = "final") -> None:
         """Raise FileNotFoundError if any required .pt files are missing."""
@@ -96,7 +96,7 @@ class ArtifactPaths:
                 f"Missing RL checkpoints in '{self.checkpoint_dir}': {missing}"
             )
 
-    # ── Workload loader ────────────────────────────────────────────
+    # Workload loader
 
     def make_workload_fn(self):
         """Build a CloudEnv-compatible workload_fn from the resolved .npy path."""
@@ -111,7 +111,7 @@ class ArtifactPaths:
 
         return fn
 
-    # ── Forecaster loader ──────────────────────────────────────────
+    # Forecaster loader
 
     def load_forecaster(self, device: str = "cpu"):
         """Load MCDropoutForecaster if weights are available, else None."""

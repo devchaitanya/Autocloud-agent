@@ -123,14 +123,14 @@ class IPPOTrainer:
         global_step = 0
 
         while global_step < total_steps:
-            # ── Entropy annealing ──────────────────────────────────────
+            # Entropy annealing
             frac = min(global_step / max(self._entropy_decay_steps, 1), 1.0)
             cur_entropy = self._entropy_coef * (1 - frac) + self._entropy_min * frac
             self.so_agent.entropy_coef  = cur_entropy
             self.con_agent.entropy_coef = cur_entropy
             self.sch_agent.entropy_coef = cur_entropy
 
-            # ── Inject forecast into env ───────────────────────────────
+            # Inject forecast into env
             if self.forecaster is not None:
                 means, sigmas = self.forecaster.predict(obs)
                 self.env.inject_forecast(means, sigmas)
@@ -142,7 +142,7 @@ class IPPOTrainer:
 
             ep_step = self.metrics.step % self.config.sim.episode_steps
 
-            # ── Scale-Out: acts every 10 steps OR on interrupt ─────────
+            # Scale-Out: acts every 10 steps OR on interrupt
             so_acts_this_step = (
                 ep_step % 10 == 0
                 or self.env.should_interrupt_scaleout()
@@ -153,7 +153,7 @@ class IPPOTrainer:
             else:
                 a_so, lp_so, v_so = 0, 0.0, 0.0
 
-            # ── Consolidation: acts every 2 steps ─────────────────────
+            # Consolidation: acts every 2 steps
             con_acts_this_step = (ep_step % 2 == 0)
             if con_acts_this_step:
                 active_mask = self.env.get_active_mask()
@@ -163,11 +163,11 @@ class IPPOTrainer:
                 a_con  = np.zeros(20, dtype=np.float32)
                 lp_con, v_con = 0.0, 0.0
 
-            # ── Scheduling: acts every step ────────────────────────────
+            # Scheduling: acts every step
             a_sch, lp_sch, v_sch = self.sch_agent.act(obs)
             last_sch_obs = obs.copy()
 
-            # ── Coordinator: apply safety filters ─────────────────────
+            # Coordinator: apply safety filters
             curr_cpu = self.env.sim.get_metrics().get("mean_cpu_util", 0.0)
             a_so_final, a_con_final, a_sch_final = self.coordinator.resolve(
                 a_scaleout=a_so,
@@ -180,7 +180,7 @@ class IPPOTrainer:
                 cpu_delta=curr_cpu - self.env._prev_cpu,
             )
 
-            # ── Env step ───────────────────────────────────────────────
+            # Env step
             action = {
                 "scaleout":      a_so_final,
                 "consolidation": a_con_final,
@@ -190,7 +190,7 @@ class IPPOTrainer:
             rewards = info["rewards"]
             done = terminated or truncated
 
-            # ── Store experience (only on acting steps) ────────────────
+            # Store experience (only on acting steps)
             if so_acts_this_step:
                 r_so_norm = self.so_tracker.normalize(rewards["scaleout"])
                 self.so_agent.store(obs, a_so, lp_so, r_so_norm, v_so, done)
@@ -211,7 +211,7 @@ class IPPOTrainer:
             self.sch_agent.store(obs, a_sch, lp_sch, r_sch_norm, v_sch, done,
                                   mask=job_mask)
 
-            # ── Raw return tracking ────────────────────────────────────
+            # Raw return tracking
             ep_so_return  += rewards["scaleout"]
             ep_con_return += rewards["consolidation"]
             ep_sch_return += rewards["scheduling"]
@@ -221,7 +221,7 @@ class IPPOTrainer:
             ep_sla_steps  += sla_met
             ep_total_steps += 1
 
-            # ── Independent buffer flushes ─────────────────────────────
+            # Independent buffer flushes
             if self.so_agent.should_update():
                 so_metrics = self.so_agent.update(next_obs, done)
                 if so_metrics:
@@ -241,7 +241,7 @@ class IPPOTrainer:
             global_step += 1
             self.metrics.step += 1
 
-            # ── Episode end ────────────────────────────────────────────
+            # Episode end
             if done:
                 self.metrics.episode += 1
                 self.metrics.so_returns.append(ep_so_return)
@@ -260,11 +260,11 @@ class IPPOTrainer:
                 next_seed = int(self.rng.integers(0, 10000)) if seed_randomize else None
                 obs, _ = self.env.reset(seed=next_seed)
 
-            # ── Periodic logging ───────────────────────────────────────
+            # Periodic logging
             if self.verbose and global_step % self.log_interval == 0:
                 self._log_step(global_step, total_steps)
 
-            # ── Checkpoint ────────────────────────────────────────────
+            # Checkpoint
             if checkpoint_dir and global_step % 10_000 == 0:
                 self.save(checkpoint_dir, tag=f"step_{global_step}")
 

@@ -22,9 +22,9 @@ import pandas as pd
 from typing import Optional, Tuple, List
 
 
-# ═══════════════════════════════════════════════════════════════════
+# 
 # Alibaba Trace Loader
-# ═══════════════════════════════════════════════════════════════════
+# 
 
 class AlibabaTraceLoader:
     """
@@ -115,7 +115,7 @@ class AlibabaTraceLoader:
         col_names = None   # we rename after read anyway
         skiprows  = [0] if has_header else None
 
-        # ── Choose loading strategy based on file size ─────────────
+        # Choose loading strategy based on file size
         total_size = sum(os.path.getsize(f) for f in csv_files)
         use_chunks = total_size > self._LARGE_FILE_THRESHOLD
 
@@ -292,7 +292,7 @@ class AlibabaTraceLoader:
             on_bad_lines="skip",
         )
 
-        # ── Pass 1: compute per-machine CPU variance (Welford) ─────────
+        # Pass 1: compute per-machine CPU variance (Welford)
         if verbose:
             print("  Pass 1/2: computing per-machine CPU variance ...")
 
@@ -328,7 +328,7 @@ class AlibabaTraceLoader:
         if verbose:
             print(f"  {len(machine_var)} total machines; keeping top {len(top_machines)}")
 
-        # ── Pass 2: collect rows for top machines only ──────────────
+        # Pass 2: collect rows for top machines only
         if verbose:
             print("  Pass 2/2: reading selected machines ...")
 
@@ -386,9 +386,9 @@ class AlibabaTraceLoader:
             raise RuntimeError("Call .load() before accessing data.")
 
 
-# ═══════════════════════════════════════════════════════════════════
+# 
 # Synthetic fallback (used for unit tests / when trace unavailable)
-# ═══════════════════════════════════════════════════════════════════
+# 
 
 class SyntheticWorkload:
     """

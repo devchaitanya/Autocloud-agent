@@ -62,7 +62,7 @@ class ScaleOutAgent(PPO):
         value    = self.critic(obs_t).squeeze().item()
         return action.item(), log_prob.item(), value
 
-    # ── PPO hooks ─────────────────────────────────────────────────
+    # PPO hooks
 
     def _get_dist(self, obs: torch.Tensor) -> Categorical:
         return Categorical(logits=self.actor(obs))

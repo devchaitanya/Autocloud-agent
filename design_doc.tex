@@ -1,6 +1,6 @@
 \documentclass[11pt,a4paper]{article}
 
-% ── Packages ──────────────────────────────────────────────────────
+% Packages
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
@@ -23,7 +23,7 @@
   columns=fullflexible,
 }
 
-% ── Title ─────────────────────────────────────────────────────────
+% Title
 \title{\textbf{AutoCloud-Agent: Design Document}\\[6pt]
 \large Multi-Agent Reinforcement Learning for Cloud Autoscaling}
 \author{Cloud Computing Course Project}
@@ -34,9 +34,9 @@
 \tableofcontents
 \newpage
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{What Problem Are We Solving?}
-% ══════════════════════════════════════════════════════════════════
+
 
 Cloud providers run thousands of virtual machines (VMs/nodes) to serve user jobs.
 The core challenge is:
@@ -60,9 +60,9 @@ Traditional systems (Kubernetes HPA, AWS Auto Scaling) use fixed rules like
 ``if CPU > 80\%, add a node.'' Our approach uses \textbf{Reinforcement Learning}
 (RL) to learn these rules from experience.
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{High-Level Architecture}
-% ══════════════════════════════════════════════════════════════════
+
 
 \begin{center}
 \begin{tikzpicture}[
@@ -134,9 +134,9 @@ The system has \textbf{four main components}:
         (Section~\ref{sec:coordinator}).
 \end{enumerate}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{The Cloud Simulator}\label{sec:simulator}
-% ══════════════════════════════════════════════════════════════════
+
 
 \subsection{What It Simulates}
 
@@ -199,9 +199,9 @@ Alibaba's data centres. The trace is preprocessed into \texttt{.npy} files
 containing arrival rates at 30-second intervals. This makes our evaluation
 realistic --- the agent faces the same workload patterns as a real cloud.
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{The RL Agents}\label{sec:agents}
-% ══════════════════════════════════════════════════════════════════
+
 
 \subsection{Why Three Agents Instead of One?}
 
@@ -300,9 +300,9 @@ In plain words:
         resources efficiently.
 \end{itemize}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{The Workload Forecaster}\label{sec:forecaster}
-% ══════════════════════════════════════════════════════════════════
+
 
 \subsection{Why Forecast?}
 
@@ -351,9 +351,9 @@ act proactively.
 The uncertainty signal is critical: when the forecaster is unsure, the Safety
 Coordinator blocks risky scale-down actions.
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{The Safety Coordinator}\label{sec:coordinator}
-% ══════════════════════════════════════════════════════════════════
+
 
 RL agents can sometimes take dangerous actions. The Safety Coordinator is a
 \textbf{hard-coded safety net} that filters actions before they reach the
@@ -379,9 +379,9 @@ simulator:
 This is important because it means the RL agents \textit{cannot crash the system}
 even if they make mistakes --- the Coordinator always enforces safety constraints.
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Training Pipeline (How the Agents Learned)}
-% ══════════════════════════════════════════════════════════════════
+
 
 Training was done in two phases:
 
@@ -409,9 +409,9 @@ Training was done in two phases:
   \item Save 6 checkpoint files (actor + critic for each of the 3 agents).
 \end{enumerate}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Evaluation: How We Test}
-% ══════════════════════════════════════════════════════════════════
+
 
 \subsection{Metrics}
 
@@ -482,9 +482,9 @@ StaticN             & 100.0\% & 0.938 & 0.333 & 1.000 \\
         they use resources (CPU util).
 \end{itemize}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Project Structure}
-% ══════════════════════════════════════════════════════════════════
+
 
 \begin{lstlisting}
 autocloud_agent/
@@ -524,9 +524,9 @@ autocloud_agent/
   pyproject.toml                # Package metadata
 \end{lstlisting}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Demo Scenarios and Edge Cases}\label{sec:demo}
-% ══════════════════════════════════════════════════════════════════
+
 
 The live demo (\texttt{demo.py}) includes an interactive configuration wizard
 that lets us set cluster parameters, SLA threshold, CPU thresholds, baseline
@@ -612,9 +612,9 @@ A 200-step episode (100 minutes simulated) shows:
         20 times over 200 steps, while Scheduling acts every step
 \end{itemize}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Stress Testing}\label{sec:stress}
-% ══════════════════════════════════════════════════════════════════
+
 
 The stress test (\texttt{stress\_test.py}) evaluates robustness under four
 extreme workload patterns that go beyond the Alibaba training distribution:
@@ -662,9 +662,9 @@ Workload drops to 10\% for 40 steps, then recovers to 80\%. This tests:
         objectives
 \end{itemize}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Ablation Study: Why Multi-Agent?}\label{sec:ablation}
-% ══════════════════════════════════════════════════════════════════
+
 
 Our results include a \textbf{SingleAgentPPO} baseline that controls all three
 actions with one monolithic policy. This serves as an ablation study:
@@ -699,9 +699,9 @@ SingleAgentPPO (1 agent) & 0.924 & 41.3\% & 0.794 \\
         of its hundreds of action dimensions was responsible.
 \end{enumerate}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Key Design Decisions}\label{sec:design-decisions}
-% ══════════════════════════════════════════════════════════════════
+
 
 \begin{enumerate}[leftmargin=2em]
   \item \textbf{Gymnasium API instead of custom simulator:} We wrap the SimPy
@@ -731,9 +731,9 @@ SingleAgentPPO (1 agent) & 0.924 & 41.3\% & 0.794 \\
         accidentally favour our approach.
 \end{enumerate}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Limitations and Future Work}\label{sec:limitations}
-% ══════════════════════════════════════════════════════════════════
+
 
 \subsection{Current Limitations}
 
@@ -770,9 +770,9 @@ SingleAgentPPO (1 agent) & 0.924 & 41.3\% & 0.794 \\
         spot pricing into the reward function.
 \end{itemize}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{References}\label{sec:references}
-% ══════════════════════════════════════════════════════════════════
+
 
 \begin{enumerate}[leftmargin=2em]
   \item J.~Schulman et al., ``Proximal Policy Optimization Algorithms,''
@@ -793,9 +793,9 @@ SingleAgentPPO (1 agent) & 0.924 & 41.3\% & 0.794 \\
         \textit{USENIX ATC}, 2023.
 \end{enumerate}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{How to Run}
-% ══════════════════════════════════════════════════════════════════
+
 
 \begin{lstlisting}[language=bash]
 # Setup
@@ -841,9 +841,9 @@ Long episode & 200 steps & Diurnal patterns, long-term stability \\
 \end{tabular}
 \end{center}
 
-% ══════════════════════════════════════════════════════════════════
+
 \section{Glossary of Terms}
-% ══════════════════════════════════════════════════════════════════
+
 
 \begin{center}
 \begin{tabular}{lp{10cm}}

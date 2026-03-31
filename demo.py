@@ -31,7 +31,7 @@ from autocloud.evaluation.baselines import (
 import copy
 
 
-# ── ANSI color helpers ───────────────────────────────────────────
+# ANSI color helpers 
 BOLD    = "\033[1m"
 DIM     = "\033[2m"
 RESET   = "\033[0m"
@@ -242,11 +242,11 @@ def demo_step_display(
     progress = int((step / total_steps) * 40)
     progress_bar = f"{agent_color}{'▓' * progress}{'░' * (40 - progress)}{RESET}"
 
-    # ── Header ──
+    # Header 
     print(f"  {BOLD}[{agent_color}{agent_name}{RESET}{BOLD}]{RESET}  "
           f"Step {step:3d}/{total_steps}  T={time_str}  {progress_bar}")
 
-    # ── Workload section ──
+    # Workload section 
     load_color = GREEN if queue < 5 else (YELLOW if queue < 15 else RED)
     print(f"  ┌─ {BOLD}Workload{RESET} ──────────────────────────────────────────────────")
     print(f"  │  Jobs in queue: {load_color}{BOLD}{queue}{RESET}  "
@@ -254,7 +254,7 @@ def demo_step_display(
           f"Migrations: {YELLOW if migrations > 0 else DIM}{migrations}{RESET}  "
           f"P95 latency: {p95:.0f}ms {sla_badge(p95)}")
 
-    # ── Forecaster section (only for RL agent) ──
+    # Forecaster section (only for RL agent) 
     if info is not None:
         f_means = info.get("forecast_means", [0]*4)
         f_sigmas = info.get("forecast_sigmas", [0]*4)
@@ -262,7 +262,7 @@ def demo_step_display(
         print(f"  │  Predicted demand:  {forecast_bar(f_means, f_sigmas)}")
         print(f"  │  Uncertainty level: {uncertainty_level(f_sigmas)}")
 
-    # ── Cluster status ──
+    # Cluster status 
     print(f"  ├─ {BOLD}Cluster{RESET} ────────────────────────────────────────────────────")
     print(f"  │  Nodes {node_display(n_active, n_booting, n_draining)}  "
           f"({GREEN}{n_active}{RESET} active  "
@@ -271,7 +271,7 @@ def demo_step_display(
     print(f"  │  CPU  {colored_bar(cpu, 35)}")
     print(f"  │  Mem  {colored_bar(mem, 35)}")
 
-    # ── Agent decisions section (only for RL agent with diagnostics) ──
+    # Agent decisions section (only for RL agent with diagnostics) 
     if diag is not None and diag:
         print(f"  ├─ {BOLD}Agent Decisions{RESET} ─────────────────────────────────────────────")
         for line in agent_decision_block(diag):
@@ -297,7 +297,7 @@ def demo_step_display(
         con_display = f"{RED}drain {n_drain}{RESET}" if n_drain > 0 else f"{DIM}none{RESET}"
         print(f"  ├─ {BOLD}HPA Decision{RESET}: ScaleOut={so_display}  Consolidation={con_display}")
 
-    # ── Cost footer ──
+    # Cost footer 
     print(f"  └─ Cost: {format_cost(step_cost)}/step  "
           f"Cumulative: {format_cost(cum_cost)}  "
           f"SLA: {GREEN}{cum_sla * 100:.1f}%{RESET}")
@@ -424,7 +424,7 @@ def print_what_happened():
 """)
 
 
-# ── Baselines registry ───────────────────────────────────────────
+# Baselines registry 
 BASELINES = {
     "1": ("KubernetesHPA",    "k8s HPA: ceil(replicas × cpu / target)",       KubernetesHPA),
     "2": ("AWSTargetTracking", "AWS-style policy with asymmetric cooldowns",   AWSTargetTracking),
@@ -481,28 +481,28 @@ def interactive_setup(args) -> dict:
   {DIM}  Press Enter to accept defaults (shown in brackets).{RESET}
 """)
 
-    # ── 1. Cluster Setup ──
+    # 1. Cluster Setup 
     print(f"  {BOLD}{MAGENTA}── 1. CLUSTER SETUP ──{RESET}")
     n_init = prompt_int("Initial VMs in the cluster", default=5, lo=3, hi=20)
     n_max  = prompt_int("Maximum VMs allowed", default=20, lo=n_init, hi=50)
     n_min  = prompt_int("Minimum VMs (safety floor)", default=3, lo=1, hi=n_init)
     print()
 
-    # ── 2. Workload & Duration ──
+    # 2. Workload & Duration 
     print(f"  {BOLD}{MAGENTA}── 2. WORKLOAD & DURATION ──{RESET}")
     steps = prompt_int("Simulation steps (1 step = 30 sec)", default=args.steps, lo=10, hi=500)
     sim_min = steps * 30 // 60
     print(f"  {CYAN}│{RESET}  {DIM}→ That's {sim_min} minutes of simulated cloud time{RESET}")
     print()
 
-    # ── 3. SLA & Cost ──
+    # 3. SLA & Cost 
     print(f"  {BOLD}{MAGENTA}── 3. SLA & PERFORMANCE THRESHOLDS ──{RESET}")
     sla_ms = prompt_float("SLA latency threshold (ms)", default=500.0, lo=50.0, hi=5000.0)
     cpu_high = prompt_float("CPU high threshold (scale-up trigger)", default=0.80, lo=0.5, hi=0.99)
     cpu_low  = prompt_float("CPU low threshold (scale-down trigger)", default=0.30, lo=0.05, hi=cpu_high)
     print()
 
-    # ── 4. Baseline Selection ──
+    # 4. Baseline Selection 
     print(f"  {BOLD}{MAGENTA}── 4. CHOOSE BASELINE TO COMPARE AGAINST ──{RESET}")
     for key, (name, desc, _) in BASELINES.items():
         marker = f"{GREEN}★{RESET}" if key == "1" else " "
@@ -512,7 +512,7 @@ def interactive_setup(args) -> dict:
     print(f"  {CYAN}│{RESET}  {GREEN}→ Selected: {BOLD}{bl_name}{RESET}")
     print()
 
-    # ── 5. Demo Speed ──
+    # 5. Demo Speed 
     print(f"  {BOLD}{MAGENTA}── 5. DEMO SPEED ──{RESET}")
     print(f"  {CYAN}│{RESET}    {BOLD}1{RESET}. Fast (no delay)   {BOLD}2{RESET}. Normal (0.15s)   {BOLD}3{RESET}. Slow (0.4s)")
     speed_map = {"1": "fast", "2": "normal", "3": "slow"}
@@ -521,7 +521,7 @@ def interactive_setup(args) -> dict:
     speed = speed_map.get(speed_key, args.speed)
     print()
 
-    # ── Summary ──
+    # Summary 
     print(f"  {BOLD}{CYAN}┌──────────────────────────────────────────────────────────────────────┐")
     print(f"  │                     CONFIGURATION SUMMARY                           │")
     print(f"  └──────────────────────────────────────────────────────────────────────┘{RESET}")
@@ -561,7 +561,7 @@ def main():
                         help="Skip configuration wizard, use defaults")
     args = parser.parse_args()
 
-    # ── Resolve paths ─────────────────────────────────────────────
+    # Resolve paths 
     paths = ArtifactPaths()
     paths.validate_checkpoints()
     workload_fn = paths.make_workload_fn()
@@ -576,7 +576,7 @@ def main():
     print(f"  {DIM}Forecaster  : {paths.forecaster_path or 'none'}{RESET}")
     print()
 
-    # ── Interactive Configuration or Defaults ─────────────────────
+    # Interactive Configuration or Defaults 
     if not args.no_pause and not args.no_interactive:
         setup = interactive_setup(args)
         # Apply user choices to config
@@ -610,7 +610,7 @@ def main():
 
     pause(f"\n  {BOLD}Press Enter to start the simulation...{RESET}")
 
-    # ── Phase 1: AutoCloud-Agent ─────────────────────────────────
+    # Phase 1: AutoCloud-Agent 
     clear()
     print_phase_banner(
         "PHASE 1 — AutoCloud-Agent (Multi-Agent RL)",
@@ -634,7 +634,7 @@ def main():
     print(f"  {BOLD}{GREEN}✓ AutoCloud-Agent complete!{RESET}")
     pause(f"  {BOLD}Press Enter to see {baseline_name} baseline...{RESET}")
 
-    # ── Phase 2: Selected Baseline ───────────────────────────────
+    # Phase 2: Selected Baseline 
     clear()
     print_phase_banner(
         f"PHASE 2 — {baseline_name} (Baseline)",
@@ -651,7 +651,7 @@ def main():
     print(f"  {BOLD}{YELLOW}✓ {baseline_name} complete!{RESET}")
     pause(f"  {BOLD}Press Enter for results comparison...{RESET}")
 
-    # ── Phase 3: Comparison ──────────────────────────────────────
+    # Phase 3: Comparison 
     clear()
     print_header()
     print_comparison_table({

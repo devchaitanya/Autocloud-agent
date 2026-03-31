@@ -110,7 +110,7 @@ class InferenceRunner:
 
         ep_step = self._eval_step
 
-        # ── ScaleOut: every 10 steps or on emergency interrupt ─────
+        # ScaleOut: every 10 steps or on emergency interrupt
         so_acted = ep_step % 10 == 0 or env.should_interrupt_scaleout()
         diag["so_acted"] = so_acted
         diag["so_reason"] = "periodic" if ep_step % 10 == 0 else ("interrupt" if so_acted else "skip")
@@ -120,7 +120,7 @@ class InferenceRunner:
             a_so = 0
         diag["so_raw"] = int(np.asarray(a_so).flat[0])
 
-        # ── Consolidation: every 2 steps ──────────────────────────
+        # Consolidation: every 2 steps
         con_acted = ep_step % 2 == 0
         diag["con_acted"] = con_acted
         if con_acted:
@@ -129,14 +129,14 @@ class InferenceRunner:
             a_con = np.zeros(20, dtype=np.float32)
         diag["con_raw_drains"] = int(np.sum(np.array(a_con) > 0.5))
 
-        # ── Scheduling: every step ─────────────────────────────────
+        # Scheduling: every step
         a_sch, _, _ = self.sch.act(obs)
         _a_sch_int = int(np.asarray(a_sch).flat[0])
         diag["sch_raw"] = _a_sch_int
         sch_names = ["Best-Fit", "First-Fit", "Round-Robin", "Least-Loaded", "Most-Loaded"]
         diag["sch_name"] = sch_names[_a_sch_int] if _a_sch_int < len(sch_names) else f"rule-{_a_sch_int}"
 
-        # ── Safety coordinator ─────────────────────────────────────
+        # Safety coordinator
         cpu = env.sim.get_metrics().get("mean_cpu_util", 0.0)
         a_so_f, a_con_f, a_sch_f = self.coordinator.resolve(
             a_scaleout=a_so,

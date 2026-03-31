@@ -118,7 +118,7 @@ class Evaluator:
         self.verbose        = verbose
         self.workload_fn    = workload_fn
 
-    # ── Policy factories ──────────────────────────────────────────
+    # Policy factories
 
     def _validate_autocloud_checkpoints(self, tag: str = "final") -> None:
         required = [
@@ -152,7 +152,7 @@ class Evaluator:
     def _make_static_n(self) -> StaticN:
         return StaticN(n_nodes=10)
 
-    # ── Evaluation runner ─────────────────────────────────────────
+    # Evaluation runner
 
     def _eval_policy(self, policy_name: str, policy, seed: int) -> Dict[str, float]:
         """Run n_episodes of the policy and return averaged metrics."""

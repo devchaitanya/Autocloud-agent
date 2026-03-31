@@ -149,7 +149,7 @@ class SchedulingAgent(PPO):
         value = self.critic(obs_t).squeeze().item()
         return action.squeeze(0).cpu().numpy(), log_prob, value
 
-    # ── PPO hooks ─────────────────────────────────────────────────
+    # PPO hooks
 
     def _get_dist(self, obs: torch.Tensor) -> Categorical:
         logits = self.actor(obs)        # (batch, K_JOBS, 5)

@@ -80,7 +80,7 @@ class SafetyCoordinator:
             if flag > 0.5 and live_nodes[slot_idx].state == NodeState.ACTIVE:
                 drain_set.append(live_nodes[slot_idx].node_id)
 
-        # ── Filter 1: Boot-protection ──────────────────────────────────
+        # Filter 1: Boot-protection
         protected = set()
         for node_id in drain_set:
             node = self._get_node(nodes, node_id)
@@ -88,7 +88,7 @@ class SafetyCoordinator:
                 protected.add(node_id)
         drain_set = [nid for nid in drain_set if nid not in protected]
 
-        # ── Filter 2: N_min floor ──────────────────────────────────────
+        # Filter 2: N_min floor
         n_active = sum(1 for n in live_nodes if n.state == NodeState.ACTIVE)
         would_remain = n_active - len(drain_set)
         if would_remain < self.n_min:
@@ -106,15 +106,15 @@ class SafetyCoordinator:
             to_remove = set(nid for nid, _ in drain_set_nodes[-excess:])
             drain_set = [nid for nid in drain_set if nid not in to_remove]
 
-        # ── Filter 3: Uncertainty suppression ─────────────────────────
+        # Filter 3: Uncertainty suppression
         if sigma_t5 > self.sigma_high:
             drain_set = []
 
-        # ── Filter 4: Simultaneous scale-out suppression ──────────────
+        # Filter 4: Simultaneous scale-out suppression
         if a_scaleout > 0:
             drain_set = []
 
-        # ── Filter 5: Uncertainty-driven proactive scale-out ──────────
+        # Filter 5: Uncertainty-driven proactive scale-out
         # Fires when EITHER:
         #   (a) forecaster uncertainty is high AND cpu is rising
         #       → out-of-distribution spike the Transformer didn't predict

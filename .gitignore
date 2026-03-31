@@ -33,3 +33,11 @@ notebooks/.ipynb_checkpoints/
 
 # Test artifacts
 tests/__pycache__/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.nav
+*.out
+*.snm
+*.toc
