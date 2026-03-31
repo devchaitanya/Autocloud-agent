@@ -8,8 +8,6 @@ __pycache__/
 # Checkpoints (large model weights — download from Kaggle)
 checkpoints/
 
-latex_files/
-
 # Data files (large numpy arrays — download from Kaggle)
 data/
 *.npy
