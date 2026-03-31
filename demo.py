@@ -20,11 +20,15 @@ import sys
 import time
 import numpy as np
 
-from autocloud.config.settings import DEFAULT_CONFIG
+from autocloud.config.settings import DEFAULT_CONFIG, Config, SimConfig, RewardConfig
 from autocloud.config.paths import ArtifactPaths
 from autocloud.simulator.cloud_env import CloudEnv
 from autocloud.inference.runner import InferenceRunner
-from autocloud.evaluation.baselines import KubernetesHPA
+from autocloud.evaluation.baselines import (
+    KubernetesHPA, AWSTargetTracking, ThresholdReactive,
+    MPCController, StaticN,
+)
+import copy
 
 
 # ── ANSI color helpers ───────────────────────────────────────────
@@ -420,6 +424,130 @@ def print_what_happened():
 """)
 
 
+# ── Baselines registry ───────────────────────────────────────────
+BASELINES = {
+    "1": ("KubernetesHPA",    "k8s HPA: ceil(replicas × cpu / target)",       KubernetesHPA),
+    "2": ("AWSTargetTracking", "AWS-style policy with asymmetric cooldowns",   AWSTargetTracking),
+    "3": ("ThresholdReactive", "Add if CPU>80%, drain if CPU<30%",             ThresholdReactive),
+    "4": ("MPCController",     "5-step MPC with EWM forecast",                 MPCController),
+    "5": ("StaticN",           "Fixed nodes, never scales (lower bound)",       StaticN),
+}
+
+
+def prompt_int(label: str, default: int, lo: int, hi: int) -> int:
+    """Prompt user for an integer within [lo, hi], with a default."""
+    while True:
+        raw = input(f"  {CYAN}│{RESET}  {label} [{BOLD}{default}{RESET}]: ").strip()
+        if raw == "":
+            return default
+        try:
+            val = int(raw)
+            if lo <= val <= hi:
+                return val
+            print(f"  {CYAN}│{RESET}  {RED}Please enter a number between {lo} and {hi}{RESET}")
+        except ValueError:
+            print(f"  {CYAN}│{RESET}  {RED}Invalid number, try again{RESET}")
+
+
+def prompt_float(label: str, default: float, lo: float, hi: float) -> float:
+    """Prompt user for a float within [lo, hi], with a default."""
+    while True:
+        raw = input(f"  {CYAN}│{RESET}  {label} [{BOLD}{default}{RESET}]: ").strip()
+        if raw == "":
+            return default
+        try:
+            val = float(raw)
+            if lo <= val <= hi:
+                return val
+            print(f"  {CYAN}│{RESET}  {RED}Please enter a value between {lo} and {hi}{RESET}")
+        except ValueError:
+            print(f"  {CYAN}│{RESET}  {RED}Invalid number, try again{RESET}")
+
+
+def prompt_choice(label: str, options: dict, default: str) -> str:
+    """Prompt user to pick from numbered options."""
+    raw = input(f"  {CYAN}│{RESET}  {label} [{BOLD}{default}{RESET}]: ").strip()
+    if raw == "" or raw not in options:
+        return default
+    return raw
+
+
+def interactive_setup(args) -> dict:
+    """Interactive configuration wizard — lets user set up the demo."""
+    print(f"""
+  {BOLD}{CYAN}┌──────────────────────────────────────────────────────────────────────┐
+  │                     DEMO CONFIGURATION                             │
+  └──────────────────────────────────────────────────────────────────────┘{RESET}
+  {DIM}  Press Enter to accept defaults (shown in brackets).{RESET}
+""")
+
+    # ── 1. Cluster Setup ──
+    print(f"  {BOLD}{MAGENTA}── 1. CLUSTER SETUP ──{RESET}")
+    n_init = prompt_int("Initial VMs in the cluster", default=5, lo=3, hi=20)
+    n_max  = prompt_int("Maximum VMs allowed", default=20, lo=n_init, hi=50)
+    n_min  = prompt_int("Minimum VMs (safety floor)", default=3, lo=1, hi=n_init)
+    print()
+
+    # ── 2. Workload & Duration ──
+    print(f"  {BOLD}{MAGENTA}── 2. WORKLOAD & DURATION ──{RESET}")
+    steps = prompt_int("Simulation steps (1 step = 30 sec)", default=args.steps, lo=10, hi=500)
+    sim_min = steps * 30 // 60
+    print(f"  {CYAN}│{RESET}  {DIM}→ That's {sim_min} minutes of simulated cloud time{RESET}")
+    print()
+
+    # ── 3. SLA & Cost ──
+    print(f"  {BOLD}{MAGENTA}── 3. SLA & PERFORMANCE THRESHOLDS ──{RESET}")
+    sla_ms = prompt_float("SLA latency threshold (ms)", default=500.0, lo=50.0, hi=5000.0)
+    cpu_high = prompt_float("CPU high threshold (scale-up trigger)", default=0.80, lo=0.5, hi=0.99)
+    cpu_low  = prompt_float("CPU low threshold (scale-down trigger)", default=0.30, lo=0.05, hi=cpu_high)
+    print()
+
+    # ── 4. Baseline Selection ──
+    print(f"  {BOLD}{MAGENTA}── 4. CHOOSE BASELINE TO COMPARE AGAINST ──{RESET}")
+    for key, (name, desc, _) in BASELINES.items():
+        marker = f"{GREEN}★{RESET}" if key == "1" else " "
+        print(f"  {CYAN}│{RESET}  {marker} {BOLD}{key}{RESET}. {name:<22} {DIM}{desc}{RESET}")
+    baseline_key = prompt_choice("Pick baseline (1-5)", BASELINES, default="1")
+    bl_name, bl_desc, bl_cls = BASELINES[baseline_key]
+    print(f"  {CYAN}│{RESET}  {GREEN}→ Selected: {BOLD}{bl_name}{RESET}")
+    print()
+
+    # ── 5. Demo Speed ──
+    print(f"  {BOLD}{MAGENTA}── 5. DEMO SPEED ──{RESET}")
+    print(f"  {CYAN}│{RESET}    {BOLD}1{RESET}. Fast (no delay)   {BOLD}2{RESET}. Normal (0.15s)   {BOLD}3{RESET}. Slow (0.4s)")
+    speed_map = {"1": "fast", "2": "normal", "3": "slow"}
+    speed_default = {"fast": "1", "normal": "2", "slow": "3"}[args.speed]
+    speed_key = prompt_choice("Speed", speed_map, default=speed_default)
+    speed = speed_map.get(speed_key, args.speed)
+    print()
+
+    # ── Summary ──
+    print(f"  {BOLD}{CYAN}┌──────────────────────────────────────────────────────────────────────┐")
+    print(f"  │                     CONFIGURATION SUMMARY                           │")
+    print(f"  └──────────────────────────────────────────────────────────────────────┘{RESET}")
+    print(f"  {CYAN}│{RESET}  Cluster    : {BOLD}{n_init}{RESET} initial → max {BOLD}{n_max}{RESET} VMs (min floor: {n_min})")
+    print(f"  {CYAN}│{RESET}  Duration   : {BOLD}{steps}{RESET} steps ({sim_min} min simulated)")
+    print(f"  {CYAN}│{RESET}  SLA target : P95 < {BOLD}{sla_ms:.0f}{RESET}ms")
+    print(f"  {CYAN}│{RESET}  CPU range  : scale-down < {BOLD}{cpu_low:.0%}{RESET} < normal < {BOLD}{cpu_high:.0%}{RESET} < scale-up")
+    print(f"  {CYAN}│{RESET}  Baseline   : {BOLD}{bl_name}{RESET}")
+    print(f"  {CYAN}│{RESET}  Speed      : {BOLD}{speed}{RESET}")
+    print()
+
+    return {
+        "n_init": n_init,
+        "n_max": n_max,
+        "n_min": n_min,
+        "steps": steps,
+        "sla_ms": sla_ms,
+        "cpu_high": cpu_high,
+        "cpu_low": cpu_low,
+        "baseline_name": bl_name,
+        "baseline_desc": bl_desc,
+        "baseline_cls": bl_cls,
+        "speed": speed,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="AutoCloud-Agent Live Demo")
     parser.add_argument("--speed", choices=["fast", "normal", "slow"],
@@ -429,19 +557,16 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-pause", action="store_true",
                         help="Skip interactive pauses (for testing)")
+    parser.add_argument("--no-interactive", action="store_true",
+                        help="Skip configuration wizard, use defaults")
     args = parser.parse_args()
-
-    delay_map = {"fast": 0.0, "normal": 0.15, "slow": 0.4}
-    delay = delay_map[args.speed]
 
     # ── Resolve paths ─────────────────────────────────────────────
     paths = ArtifactPaths()
     paths.validate_checkpoints()
     workload_fn = paths.make_workload_fn()
 
-    config = DEFAULT_CONFIG
-    # Override episode length for demo
-    config.sim.episode_steps = args.steps
+    config = copy.deepcopy(DEFAULT_CONFIG)
 
     clear()
     print_header()
@@ -449,20 +574,49 @@ def main():
     print(f"  {DIM}Checkpoints : {paths.checkpoint_dir}{RESET}")
     print(f"  {DIM}Workload    : {paths.workload_file or 'synthetic'}{RESET}")
     print(f"  {DIM}Forecaster  : {paths.forecaster_path or 'none'}{RESET}")
-    print(f"  {DIM}Episode     : {args.steps} steps ({args.steps * 30 // 60} min simulated){RESET}")
-    print(f"  {DIM}Speed       : {args.speed}{RESET}")
+    print()
+
+    # ── Interactive Configuration or Defaults ─────────────────────
+    if not args.no_pause and not args.no_interactive:
+        setup = interactive_setup(args)
+        # Apply user choices to config
+        config.sim.n_init = setup["n_init"]
+        config.sim.n_max = setup["n_max"]
+        config.sim.n_min = setup["n_min"]
+        config.sim.episode_steps = setup["steps"]
+        config.reward.sla_latency_ms = setup["sla_ms"]
+        config.reward.cpu_high = setup["cpu_high"]
+        config.reward.cpu_low = setup["cpu_low"]
+        total_steps = setup["steps"]
+        baseline_name = setup["baseline_name"]
+        baseline_desc = setup["baseline_desc"]
+        baseline_cls = setup["baseline_cls"]
+        speed = setup["speed"]
+    else:
+        # Non-interactive: use CLI args / defaults
+        config.sim.episode_steps = args.steps
+        total_steps = args.steps
+        baseline_name = "KubernetesHPA"
+        baseline_desc = "desiredReplicas = ceil(currentReplicas × currentCPU / targetCPU)"
+        baseline_cls = KubernetesHPA
+        speed = args.speed
+
+    delay_map = {"fast": 0.0, "normal": 0.15, "slow": 0.4}
+    delay = delay_map[speed]
 
     def pause(msg: str):
         if not args.no_pause:
             input(msg)
 
-    pause(f"\n  {BOLD}Press Enter to start the demo...{RESET}")
+    pause(f"\n  {BOLD}Press Enter to start the simulation...{RESET}")
 
     # ── Phase 1: AutoCloud-Agent ─────────────────────────────────
     clear()
     print_phase_banner(
         "PHASE 1 — AutoCloud-Agent (Multi-Agent RL)",
-        "3 specialised PPO agents + Transformer forecaster + Safety Coordinator"
+        f"3 PPO agents + Transformer forecaster + Safety Coordinator  |  "
+        f"{config.sim.n_init} init VMs, max {config.sim.n_max}, "
+        f"SLA < {config.reward.sla_latency_ms:.0f}ms"
     )
 
     agent = InferenceRunner(
@@ -473,28 +627,28 @@ def main():
 
     sla_rl, cost_rl, steps_rl = run_single_demo(
         "AutoCloud-Agent", GREEN, agent, config,
-        workload_fn, args.seed, args.steps, delay,
+        workload_fn, args.seed, total_steps, delay,
         is_rl=True,
     )
 
     print(f"  {BOLD}{GREEN}✓ AutoCloud-Agent complete!{RESET}")
-    pause(f"  {BOLD}Press Enter to see Kubernetes HPA baseline...{RESET}")
+    pause(f"  {BOLD}Press Enter to see {baseline_name} baseline...{RESET}")
 
-    # ── Phase 2: Kubernetes HPA ──────────────────────────────────
+    # ── Phase 2: Selected Baseline ───────────────────────────────
     clear()
     print_phase_banner(
-        "PHASE 2 — Kubernetes HPA (Industry Baseline)",
-        "desiredReplicas = ceil(currentReplicas × currentCPU / targetCPU)"
+        f"PHASE 2 — {baseline_name} (Baseline)",
+        baseline_desc
     )
 
-    hpa = KubernetesHPA()
+    baseline_policy = baseline_cls()
 
-    sla_hpa, cost_hpa, steps_hpa = run_single_demo(
-        "KubernetesHPA", YELLOW, hpa, config,
-        workload_fn, args.seed, args.steps, delay,
+    sla_bl, cost_bl, steps_bl = run_single_demo(
+        baseline_name, YELLOW, baseline_policy, config,
+        workload_fn, args.seed, total_steps, delay,
     )
 
-    print(f"  {BOLD}{YELLOW}✓ Kubernetes HPA complete!{RESET}")
+    print(f"  {BOLD}{YELLOW}✓ {baseline_name} complete!{RESET}")
     pause(f"  {BOLD}Press Enter for results comparison...{RESET}")
 
     # ── Phase 3: Comparison ──────────────────────────────────────
@@ -502,7 +656,7 @@ def main():
     print_header()
     print_comparison_table({
         "AutoCloud-Agent": {"sla": sla_rl, "cost": cost_rl},
-        "KubernetesHPA":   {"sla": sla_hpa, "cost": cost_hpa},
+        baseline_name:     {"sla": sla_bl, "cost": cost_bl},
     })
 
     print_what_happened()
