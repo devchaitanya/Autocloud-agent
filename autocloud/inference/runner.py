@@ -63,11 +63,14 @@ class InferenceRunner:
         self._eval_step = 0
         # Rolling workload history for forecaster: (seq_len, 4)
         self._history: list = []
+        # Diagnostics for the last select_action call (used by demo)
+        self.last_diag: dict = {}
 
     def reset(self) -> None:
         """Reset per-episode step counter and forecast history."""
         self._eval_step = 0
         self._history = []
+        self.last_diag = {}
 
     def _extract_forecast_features(self, obs: np.ndarray, env: CloudEnv) -> np.ndarray:
         """Extract the 4 workload features the Transformer forecaster expects."""
@@ -92,28 +95,46 @@ class InferenceRunner:
         """
         Full inference step: forecast → temporal hierarchy → coordinator → action dict.
         """
+        diag: dict = {"step": self._eval_step}
+
         # Inject forecast if forecaster is attached
         if self.forecaster is not None:
             window = self._get_forecast_window(obs, env)
             means, sigmas = self.forecaster.predict(window)
             env.inject_forecast(means, sigmas)
+            diag["forecast_means"] = means.tolist() if hasattr(means, "tolist") else list(means)
+            diag["forecast_sigmas"] = sigmas.tolist() if hasattr(sigmas, "tolist") else list(sigmas)
+        else:
+            diag["forecast_means"] = env.forecast_means.tolist()
+            diag["forecast_sigmas"] = env.forecast_sigmas.tolist()
 
         ep_step = self._eval_step
 
         # ── ScaleOut: every 10 steps or on emergency interrupt ─────
-        if ep_step % 10 == 0 or env.should_interrupt_scaleout():
+        so_acted = ep_step % 10 == 0 or env.should_interrupt_scaleout()
+        diag["so_acted"] = so_acted
+        diag["so_reason"] = "periodic" if ep_step % 10 == 0 else ("interrupt" if so_acted else "skip")
+        if so_acted:
             a_so, _, _ = self.so.act(obs)
         else:
             a_so = 0
+        diag["so_raw"] = int(np.asarray(a_so).flat[0])
 
         # ── Consolidation: every 2 steps ──────────────────────────
-        if ep_step % 2 == 0:
+        con_acted = ep_step % 2 == 0
+        diag["con_acted"] = con_acted
+        if con_acted:
             a_con, _, _ = self.con.act(obs, env.get_active_mask())
         else:
             a_con = np.zeros(20, dtype=np.float32)
+        diag["con_raw_drains"] = int(np.sum(np.array(a_con) > 0.5))
 
         # ── Scheduling: every step ─────────────────────────────────
         a_sch, _, _ = self.sch.act(obs)
+        _a_sch_int = int(np.asarray(a_sch).flat[0])
+        diag["sch_raw"] = _a_sch_int
+        sch_names = ["Best-Fit", "First-Fit", "Round-Robin", "Least-Loaded", "Most-Loaded"]
+        diag["sch_name"] = sch_names[_a_sch_int] if _a_sch_int < len(sch_names) else f"rule-{_a_sch_int}"
 
         # ── Safety coordinator ─────────────────────────────────────
         cpu = env.sim.get_metrics().get("mean_cpu_util", 0.0)
@@ -128,7 +149,19 @@ class InferenceRunner:
             cpu_delta=cpu - env._prev_cpu,
         )
 
+        def _int(x):
+            """Safely convert any scalar (tensor, ndarray, int) to Python int."""
+            return int(np.asarray(x).flat[0])
+
+        # Record safety overrides
+        diag["so_filtered"] = _int(a_so_f)
+        diag["so_overridden"] = _int(a_so_f) != _int(a_so)
+        diag["con_filtered_drains"] = int(np.sum(np.array(a_con_f) > 0.5))
+        diag["con_overridden"] = diag["con_filtered_drains"] != diag["con_raw_drains"]
+        diag["sch_filtered"] = _int(a_sch_f)
+
         self._eval_step += 1
+        self.last_diag = diag
 
         return {
             "scaleout": a_so_f,

@@ -119,6 +119,93 @@ def print_phase_banner(phase: str, description: str):
     print(f"{BOLD}{MAGENTA}{'━' * width}{RESET}\n")
 
 
+def forecast_bar(means: list, sigmas: list) -> str:
+    """Draw a mini sparkline-style forecast with uncertainty bands."""
+    horizons = ["t+1", "t+5", "t+10", "t+15"]
+    parts = []
+    for i, h in enumerate(horizons):
+        m = means[i] if i < len(means) else 0.0
+        s = sigmas[i] if i < len(sigmas) else 0.0
+        # Color by demand level
+        if m < 0.3:
+            c = GREEN
+        elif m < 0.6:
+            c = YELLOW
+        else:
+            c = RED
+        # Uncertainty indicator
+        if s > 0.15:
+            unc = f"{RED}±{s:.2f}{RESET}"
+        elif s > 0.05:
+            unc = f"{YELLOW}±{s:.2f}{RESET}"
+        else:
+            unc = f"{DIM}±{s:.2f}{RESET}"
+        parts.append(f"{DIM}{h}:{RESET}{c}{m:.2f}{RESET}({unc})")
+    return "  ".join(parts)
+
+
+def uncertainty_level(sigmas: list) -> str:
+    """Return a human-readable uncertainty label."""
+    avg_sigma = np.mean(sigmas) if sigmas else 0.0
+    if avg_sigma > 0.15:
+        return f"{RED}{BOLD}HIGH ⚠{RESET}"
+    elif avg_sigma > 0.05:
+        return f"{YELLOW}MEDIUM{RESET}"
+    else:
+        return f"{GREEN}LOW{RESET}"
+
+
+def agent_decision_block(diag: dict) -> list[str]:
+    """Format the 3 agent decisions + safety coordinator as lines."""
+    lines = []
+
+    # ScaleOut agent
+    so_raw = diag.get("so_raw", 0)
+    so_filtered = diag.get("so_filtered", 0)
+    so_acted = diag.get("so_acted", False)
+    so_reason = diag.get("so_reason", "skip")
+
+    so_action_names = {0: "HOLD", 1: "+1 node", 2: "+2 nodes"}
+    if not so_acted:
+        so_line = f"{DIM}ScaleOut     │ sleeping (acts every 10 steps){RESET}"
+    else:
+        raw_name = so_action_names.get(so_raw, "HOLD")
+        filt_name = so_action_names.get(so_filtered, "HOLD")
+        trigger = f"[{so_reason}]"
+        if diag.get("so_overridden"):
+            so_line = (f"{CYAN}ScaleOut     │ {trigger} decided {YELLOW}{raw_name}{RESET}"
+                       f" → {RED}safety override → {filt_name}{RESET}")
+        else:
+            color = GREEN if so_filtered > 0 else DIM
+            so_line = f"{CYAN}ScaleOut     │ {trigger} → {color}{BOLD}{filt_name}{RESET}"
+    lines.append(so_line)
+
+    # Consolidation agent
+    con_acted = diag.get("con_acted", False)
+    con_raw = diag.get("con_raw_drains", 0)
+    con_filt = diag.get("con_filtered_drains", 0)
+
+    if not con_acted:
+        con_line = f"{DIM}Consolidation│ sleeping (acts every 2 steps){RESET}"
+    else:
+        if con_raw == 0:
+            con_line = f"{CYAN}Consolidation│ → {DIM}no drains{RESET}"
+        elif diag.get("con_overridden"):
+            con_line = (f"{CYAN}Consolidation│ drain {YELLOW}{con_raw} VMs{RESET}"
+                        f" → {RED}safety blocked {con_raw - con_filt}{RESET}"
+                        f" → draining {con_filt}")
+        else:
+            con_line = f"{CYAN}Consolidation│ → {RED}drain {con_filt} VMs{RESET}"
+    lines.append(con_line)
+
+    # Scheduling agent
+    sch_name = diag.get("sch_name", "Best-Fit")
+    sch_line = f"{CYAN}Scheduling   │ → {GREEN}{sch_name}{RESET}"
+    lines.append(sch_line)
+
+    return lines
+
+
 def demo_step_display(
     step: int,
     total_steps: int,
@@ -128,8 +215,10 @@ def demo_step_display(
     action: dict,
     cum_sla: float,
     cum_cost: float,
+    info: dict | None = None,
+    diag: dict | None = None,
 ):
-    """Render one step of the live simulation."""
+    """Render one step of the live simulation with full telemetry."""
     m = metrics
     n_active = m["n_active"]
     n_booting = m["n_booting"]
@@ -139,37 +228,72 @@ def demo_step_display(
     p95 = m["p95_latency"]
     queue = m["queue_len"]
     step_cost = m["step_cost"]
+    completions = m.get("step_completions", 0)
+    migrations = m.get("step_migrations", 0)
 
     # Time display
     sim_minutes = step * 0.5  # 30s per step
     time_str = f"{int(sim_minutes // 60):02d}:{int(sim_minutes % 60 * 60 // 60):02d}"
 
-    # Action display
-    so_action = action.get("scaleout", 0)
-    so_str = {0: f"{DIM}hold{RESET}", 1: f"{GREEN}+1 node{RESET}", 2: f"{GREEN}+2 nodes{RESET}"}
-    if isinstance(so_action, (int, np.integer)):
-        so_display = so_str.get(int(so_action), f"{RED}drain{RESET}")
-    else:
-        so_display = f"{DIM}hold{RESET}"
-
-    con_vec = action.get("consolidation", np.zeros(20))
-    n_draining_cmd = int(np.sum(np.array(con_vec) > 0.5))
-    con_display = f"{RED}drain {n_draining_cmd}{RESET}" if n_draining_cmd > 0 else f"{DIM}none{RESET}"
-
     progress = int((step / total_steps) * 40)
     progress_bar = f"{agent_color}{'▓' * progress}{'░' * (40 - progress)}{RESET}"
 
+    # ── Header ──
     print(f"  {BOLD}[{agent_color}{agent_name}{RESET}{BOLD}]{RESET}  "
           f"Step {step:3d}/{total_steps}  T={time_str}  {progress_bar}")
-    print(f"  ┌─ Nodes ─────── {node_display(n_active, n_booting, n_draining)}")
-    print(f"  │  Active: {BOLD}{n_active:2d}{RESET}  "
-          f"Booting: {YELLOW}{n_booting}{RESET}  "
-          f"Draining: {RED}{n_draining}{RESET}  "
-          f"Queue: {CYAN}{queue}{RESET}")
-    print(f"  ├─ CPU   {colored_bar(cpu, 35)}")
-    print(f"  ├─ Mem   {colored_bar(mem, 35)}")
-    print(f"  ├─ P95 Latency: {p95:7.1f}ms  {sla_badge(p95)}")
-    print(f"  ├─ Actions: ScaleOut={so_display}  Consolidation={con_display}")
+
+    # ── Workload section ──
+    load_color = GREEN if queue < 5 else (YELLOW if queue < 15 else RED)
+    print(f"  ┌─ {BOLD}Workload{RESET} ──────────────────────────────────────────────────")
+    print(f"  │  Jobs in queue: {load_color}{BOLD}{queue}{RESET}  "
+          f"Completed: {GREEN}{completions}{RESET}  "
+          f"Migrations: {YELLOW if migrations > 0 else DIM}{migrations}{RESET}  "
+          f"P95 latency: {p95:.0f}ms {sla_badge(p95)}")
+
+    # ── Forecaster section (only for RL agent) ──
+    if info is not None:
+        f_means = info.get("forecast_means", [0]*4)
+        f_sigmas = info.get("forecast_sigmas", [0]*4)
+        print(f"  ├─ {BOLD}Forecaster{RESET} ─────────────────────────────────────────────────")
+        print(f"  │  Predicted demand:  {forecast_bar(f_means, f_sigmas)}")
+        print(f"  │  Uncertainty level: {uncertainty_level(f_sigmas)}")
+
+    # ── Cluster status ──
+    print(f"  ├─ {BOLD}Cluster{RESET} ────────────────────────────────────────────────────")
+    print(f"  │  Nodes {node_display(n_active, n_booting, n_draining)}  "
+          f"({GREEN}{n_active}{RESET} active  "
+          f"{YELLOW}{n_booting}{RESET} booting  "
+          f"{RED}{n_draining}{RESET} draining)")
+    print(f"  │  CPU  {colored_bar(cpu, 35)}")
+    print(f"  │  Mem  {colored_bar(mem, 35)}")
+
+    # ── Agent decisions section (only for RL agent with diagnostics) ──
+    if diag is not None and diag:
+        print(f"  ├─ {BOLD}Agent Decisions{RESET} ─────────────────────────────────────────────")
+        for line in agent_decision_block(diag):
+            print(f"  │  {line}")
+        # Safety coordinator summary
+        overrides = []
+        if diag.get("so_overridden"):
+            overrides.append("ScaleOut")
+        if diag.get("con_overridden"):
+            overrides.append("Consolidation")
+        if overrides:
+            print(f"  │  {RED}{BOLD}⚠ Safety Coordinator overrode: {', '.join(overrides)}{RESET}")
+        else:
+            print(f"  │  {GREEN}✓ Safety Coordinator: all actions approved{RESET}")
+    else:
+        # Baseline — show simple action display
+        so_action = action.get("scaleout", 0)
+        so_names = {0: f"{DIM}hold{RESET}", 1: f"{GREEN}+1 node{RESET}", 2: f"{GREEN}+2 nodes{RESET}"}
+        so_display = so_names.get(int(so_action) if isinstance(so_action, (int, np.integer)) else 0,
+                                  f"{DIM}hold{RESET}")
+        con_vec = action.get("consolidation", np.zeros(20))
+        n_drain = int(np.sum(np.array(con_vec) > 0.5))
+        con_display = f"{RED}drain {n_drain}{RESET}" if n_drain > 0 else f"{DIM}none{RESET}"
+        print(f"  ├─ {BOLD}HPA Decision{RESET}: ScaleOut={so_display}  Consolidation={con_display}")
+
+    # ── Cost footer ──
     print(f"  └─ Cost: {format_cost(step_cost)}/step  "
           f"Cumulative: {format_cost(cum_cost)}  "
           f"SLA: {GREEN}{cum_sla * 100:.1f}%{RESET}")
@@ -185,6 +309,7 @@ def run_single_demo(
     seed: int,
     total_steps: int,
     delay: float,
+    is_rl: bool = False,
 ):
     """Run one full episode and display live metrics."""
     env = CloudEnv(config=config, seed=seed, workload_fn=workload_fn)
@@ -210,11 +335,16 @@ def run_single_demo(
         cum_sla = sla_steps / step
         cum_cost += m["step_cost"]
 
+        # Get diagnostics from RL agent if available
+        diag = getattr(policy, "last_diag", None) if is_rl else None
+
         # Display every 2nd step (keeps output manageable)
         if step % 2 == 0 or step == 1 or done:
             demo_step_display(
                 step, total_steps, agent_name, agent_color,
                 m, action, cum_sla, cum_cost,
+                info=info if is_rl else None,
+                diag=diag,
             )
             if delay > 0:
                 time.sleep(delay)
@@ -344,6 +474,7 @@ def main():
     sla_rl, cost_rl, steps_rl = run_single_demo(
         "AutoCloud-Agent", GREEN, agent, config,
         workload_fn, args.seed, args.steps, delay,
+        is_rl=True,
     )
 
     print(f"  {BOLD}{GREEN}✓ AutoCloud-Agent complete!{RESET}")
