@@ -49,7 +49,7 @@ python stress_test.py            # 4 peak-load stress scenarios
 
 ### 1. Live Demo (`demo.py`)
 
-An interactive terminal demo that runs AutoCloud-Agent and Kubernetes HPA side-by-side, with coloured output, progress bars, and a comparison table at the end. **Best for presenting to an instructor.**
+An interactive terminal demo that runs AutoCloud-Agent and Kubernetes HPA side-by-side, with coloured output, progress bars, and a comparison table at the end.
 
 ```bash
 # Default: 60 steps, normal speed, interactive pauses between phases
