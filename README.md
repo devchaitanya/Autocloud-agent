@@ -49,7 +49,7 @@ python stress_test.py            # 4 peak-load stress scenarios
 
 ### 1. Live Demo (`demo.py`)
 
-An interactive terminal demo that runs AutoCloud-Agent and Kubernetes HPA side-by-side, with coloured output, progress bars, and a comparison table at the end.
+An interactive terminal demo that runs AutoCloud-Agent and a baseline side-by-side, with coloured output, progress bars, and a comparison table at the end.
 
 ```bash
 # Default: 60 steps, normal speed, interactive pauses between phases
@@ -58,7 +58,7 @@ python demo.py
 # Fast mode (shorter delays between steps)
 python demo.py --speed fast
 
-# Slow mode (longer delays — good for explaining each step live)
+# Slow mode (longer delays between steps)
 python demo.py --speed slow
 
 # Skip "Press Enter to continue" pauses (non-interactive / recording)
@@ -115,10 +115,10 @@ python demo.py --steps 200 --speed fast --no-pause
 python demo.py --steps 15 --speed fast --no-pause --no-interactive
 ```
 
-**Key things to point out during presentation:**
-- Watch the **Safety Coordinator** override agent actions (red warnings)
-- Compare **forecaster uncertainty** (±values) with actual demand changes
-- Note how RL **scales proactively** (before spikes) while HPA reacts **after** CPU exceeds 80%
+**Key observations:**
+- The **Safety Coordinator** overrides dangerous agent actions (shown as red warnings)
+- **Forecaster uncertainty** (±values) correlates with actual demand changes
+- RL **scales proactively** (before spikes) while HPA reacts **after** CPU exceeds 80%
 - Consolidation agent drains VMs in **pairs** to maintain stability
 - Node status dots: green=active, yellow=booting, red=draining, grey=off
 

@@ -10,7 +10,7 @@ Usage:
     conda activate myenv
     python demo.py
     python demo.py --speed fast       # faster demo (skip sleep)
-    python demo.py --speed slow       # slower for narration
+    python demo.py --speed slow       # slower step delay
 """
 from __future__ import annotations
 
