@@ -8,22 +8,165 @@ Tested against 6 SOTA baselines (Kubernetes HPA, AWS Target Tracking, MPC, etc.)
 
 ---
 
+## Prerequisites
+
+- **Python 3.11+** (tested with conda environment)
+- **PyTorch ≥ 2.0** (CPU is sufficient for inference/evaluation; GPU needed only for training)
+- **Packages:** gymnasium, simpy, pandas, numpy (all installed automatically)
+
+---
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/devchaitanya/Autocloud-agent.git
+cd Autocloud-agent/autocloud_agent/
+
+# Create conda environment (recommended)
+conda create -n myenv python=3.11 -y
+conda activate myenv
+
+# Install the package (editable mode — includes all dependencies)
+pip install -e .
+```
+
+This installs the `autocloud` Python package and all dependencies from `pyproject.toml`.
+
+---
+
 ## Quick Start
 
 ```bash
-cd autocloud_agent/
-conda activate myenv
-pip install -e .      # one-time install
+python demo.py                   # interactive live demo
+python scripts/evaluate.py       # full evaluation (7 methods × 3 seeds)
+python stress_test.py            # 4 peak-load stress scenarios
+```
 
-# Live demo (interactive, shows RL agent vs Kubernetes HPA side-by-side)
+---
+
+## How to Run
+
+### 1. Live Demo (`demo.py`)
+
+An interactive terminal demo that runs AutoCloud-Agent and Kubernetes HPA side-by-side, with coloured output, progress bars, and a comparison table at the end. **Best for presenting to an instructor.**
+
+```bash
+# Default: 60 steps, normal speed, interactive pauses between phases
 python demo.py
 
-# Full evaluation (7 methods × 5 episodes × 3 seeds)
+# Fast mode (shorter delays between steps)
+python demo.py --speed fast
+
+# Slow mode (longer delays — good for explaining each step live)
+python demo.py --speed slow
+
+# Skip "Press Enter to continue" pauses (non-interactive / recording)
+python demo.py --no-pause
+
+# Shorter demo (10 steps instead of 60)
+python demo.py --steps 10
+
+# Combine flags
+python demo.py --speed fast --steps 30 --no-pause --seed 123
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--speed` | `normal` | `fast` / `normal` / `slow` — controls delay between steps |
+| `--steps` | `60` | Number of simulation steps per phase |
+| `--seed` | `42` | Random seed for reproducibility |
+| `--no-pause` | off | Skip interactive "Press Enter" prompts |
+
+**What you'll see:**
+- **Phase 1:** AutoCloud-Agent running (node status dots, CPU/memory bars, SLA badge, live cost)
+- **Phase 2:** Kubernetes HPA baseline on the same workload
+- **Phase 3:** Side-by-side comparison table + educational summary of how the RL agent works
+
+### 2. Full Evaluation (`scripts/evaluate.py`)
+
+Runs all 7 methods (AutoCloud-Agent + 6 baselines) across multiple episodes and seeds. Results saved to JSON.
+
+```bash
+# Default: 10 episodes × 3 seeds, auto-detect checkpoints
 python scripts/evaluate.py
 
-# Stress test (4 peak scenarios)
-python stress_test.py
+# Custom number of episodes and seeds
+python scripts/evaluate.py --n_episodes 5 --seeds 0 1 2
+
+# Specify paths manually (if auto-detection doesn't find them)
+python scripts/evaluate.py --checkpoint_dir checkpoints/ --workload path/to/day2_processed.npy
+
+# Save results to a custom file
+python scripts/evaluate.py --output my_results.json
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--checkpoint_dir` | auto-detect | Path to directory with `.pt` checkpoint files |
+| `--workload` | auto-detect | Path to workload `.npy` file |
+| `--n_episodes` | `10` | Episodes per method per seed |
+| `--seeds` | `0 1 2` | Random seeds to average over |
+| `--output` | `evaluation_results.json` | Output file for results |
+
+### 3. Stress Test (`stress_test.py`)
+
+Tests robustness under 4 extreme workload patterns (ramp-up, sudden spike, choppy plateau, trough-then-recovery).
+
+```bash
+# Run all 4 scenarios
+python stress_test.py
+
+# Run specific scenarios only (1-4)
+python stress_test.py --scenarios 1 3
+
+# Custom seeds
+python stress_test.py --seeds 0 1 2 3 4
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--checkpoint_dir` | auto-detect | Path to checkpoint directory |
+| `--workload_file` | auto-detect | Path to workload `.npy` file |
+| `--seeds` | `0 1 2` | Random seeds |
+| `--scenarios` | `1 2 3 4` | Which scenarios to run (1=ramp, 2=shock, 3=choppy, 4=trough) |
+
+### 4. Training (`train.py` — GPU recommended)
+
+Training is best done on **Kaggle** using the provided notebooks (free T4 GPU). For local training:
+
+```bash
+# Train with default settings (50k steps, CPU)
+python train.py
+
+# Train on GPU
+python train.py --device cuda --total_steps 100000
+
+# Resume from checkpoint
+python train.py --load_tag final --checkpoint_dir checkpoints/
+
+# Evaluation-only mode (no training, just evaluate loaded checkpoints)
+python train.py --eval_only --load_tag final
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--total_steps` | `50000` | Total training steps |
+| `--seed` | `0` | Random seed |
+| `--device` | `cpu` | `cpu` or `cuda` |
+| `--checkpoint_dir` | `checkpoints` | Where to save/load checkpoints |
+| `--forecaster_path` | auto-detect | Path to `forecaster_weights.pt` |
+| `--load_tag` | none | Load checkpoints with this tag (e.g., `final`) |
+| `--eval_only` | off | Skip training, just evaluate |
+| `--workload_file` | auto-detect | Path to workload `.npy` data |
+| `--log_interval` | `1000` | Print metrics every N steps |
+
+### Checkpoint & Data Auto-Discovery
+
+You don't need to specify paths manually. The system auto-discovers files from:
+1. `autocloud_agent/checkpoints/` (6 `.pt` files)
+2. `outputs/rl_agents/` (fallback)
+3. `outputs/train_Forecaster/` (workload data + forecaster weights)
 
 ---
 
