@@ -83,6 +83,45 @@ python demo.py --speed fast --steps 30 --no-pause --seed 123
 - **Phase 2:** Kubernetes HPA baseline on the same workload
 - **Phase 3:** Side-by-side comparison table + educational summary of how the RL agent works
 
+#### Sample Demo Configurations (Edge Cases)
+
+Use the interactive wizard (default) or `--no-interactive` with modified config. Below are scenarios that showcase different system behaviours:
+
+| # | Scenario | How to Configure | What It Demonstrates |
+|---|----------|-----------------|----------------------|
+| 1 | **Tight Cluster** | 3 init VMs, max 5, min 3 | Agent has almost no headroom — shows Safety Coordinator blocking drain actions, forced min-floor, and how RL adapts to extreme constraints |
+| 2 | **Over-provisioned Cluster** | 15 init VMs, max 20, min 3 | Agent starts with too many nodes — watch Consolidation Agent aggressively drain idle VMs to cut cost |
+| 3 | **Strict SLA (100ms)** | SLA threshold = 100ms | Very tight latency target — agent scales out proactively, forecaster uncertainty triggers defensive provisioning |
+| 4 | **Relaxed SLA (2000ms)** | SLA threshold = 2000ms | Agent keeps fewer nodes since latency budget is generous — cost efficiency goes up, cluster runs lean |
+| 5 | **High CPU Threshold (95%)** | CPU high = 0.95, CPU low = 0.10 | Agent tolerates near-saturation before scaling — stress-tests the forecaster's ability to anticipate spikes |
+| 6 | **vs MPC Controller** | Baseline = MPCController | MPC is the strongest classical baseline — shows RL matching/beating model predictive control |
+| 7 | **vs StaticN (do-nothing)** | Baseline = StaticN | Lower bound comparison — RL agent saves cost while static wastes resources on idle nodes |
+| 8 | **Long Episode** | 200 steps (100 min simulated) | Shows long-horizon behaviour: diurnal workload patterns, sustained consolidation, stability over time |
+| 9 | **Short Burst** | 15 steps, fast speed | Quick sanity check or rapid demo — agent must react instantly to initial workload |
+
+**Example commands for non-interactive mode:**
+
+```bash
+# Scenario 1: Tight cluster (modify via wizard — just type the values when prompted)
+python demo.py --speed slow
+
+# Scenario 6: RL vs MPC (select option 4 in the baseline menu)
+python demo.py --steps 60 --speed normal
+
+# Scenario 8: Long episode
+python demo.py --steps 200 --speed fast --no-pause
+
+# Quick test (non-interactive, all defaults)
+python demo.py --steps 15 --speed fast --no-pause --no-interactive
+```
+
+**Key things to point out during presentation:**
+- Watch the **Safety Coordinator** override agent actions (red warnings)
+- Compare **forecaster uncertainty** (±values) with actual demand changes
+- Note how RL **scales proactively** (before spikes) while HPA reacts **after** CPU exceeds 80%
+- Consolidation agent drains VMs in **pairs** to maintain stability
+- Node status dots: green=active, yellow=booting, red=draining, grey=off
+
 ### 2. Full Evaluation (`scripts/evaluate.py`)
 
 Runs all 7 methods (AutoCloud-Agent + 6 baselines) across multiple episodes and seeds. Results saved to JSON.

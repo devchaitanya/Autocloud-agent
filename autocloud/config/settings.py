@@ -79,20 +79,12 @@ class CoordinatorConfig:
 
 
 @dataclass
-class AutoResearchConfig:
-    budget: int = 8
-    timeout_s: int = 600
-    api_model: str = "claude-sonnet-4-6"
-
-
-@dataclass
 class Config:
     sim: SimConfig = field(default_factory=SimConfig)
     forecast: ForecastConfig = field(default_factory=ForecastConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
     reward: RewardConfig = field(default_factory=RewardConfig)
     coordinator: CoordinatorConfig = field(default_factory=CoordinatorConfig)
-    autoresearch: AutoResearchConfig = field(default_factory=AutoResearchConfig)
     total_steps: int = 200_000
     eval_seeds: list = field(default_factory=lambda: [0, 1, 2])
     log_interval: int = 1000

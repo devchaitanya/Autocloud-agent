@@ -32,4 +32,4 @@ notebooks/.ipynb_checkpoints/
 .idea/
 
 # Test artifacts
-tests/
+tests/__pycache__/
