@@ -94,9 +94,9 @@
 \begin{tcolorbox}[accentbox, title={}]
 \small
 \textcolor{ACaccent}{\textbf{5.}} Safety Coordinator\\[2pt]
-\textcolor{ACaccent}{\textbf{6.}} Cloud Simulator\\[2pt]
-\textcolor{ACaccent}{\textbf{7.}} Results \& Ablation\\[2pt]
-\textcolor{ACaccent}{\textbf{8.}} Conclusion
+\textcolor{ACaccent}{\textbf{6.}} Reward Design \& Training\\[2pt]
+\textcolor{ACaccent}{\textbf{7.}} Results, Ablation \& Stress Tests\\[2pt]
+\textcolor{ACaccent}{\textbf{8.}} Future Work \& Conclusion
 \end{tcolorbox}
 \end{column}
 \end{columns}
@@ -280,9 +280,10 @@ three independent spaces of size \textbf{3}, $\mathbf{2^{20}}$, \textbf{5}
 \vspace{0.2cm}
 \begin{tcolorbox}[accentbox]
 \small
-\textbf{MLP Architecture} (each agent):\\
-$215 \to 512 \xrightarrow{\text{LN+ReLU}} 256 \xrightarrow{\text{LN+ReLU}} 128 \to \text{head}$\\[4pt]
-Separate \textbf{Actor} (policy) + \textbf{Critic} (value)
+\textbf{Agent-Specific Reward Shaping:}\\[2pt]
+\footnotesize\textbf{ScaleOut:} under/over-provisioning + running cost + proactive bonus\\[1pt]
+\textbf{Consolidation:} cost saving + SLA bonus $-$ migration penalty\\[1pt]
+\textbf{Scheduling:} $-$\,mean wait time $-$ SLA violations
 \end{tcolorbox}
 \end{column}
 
@@ -422,8 +423,8 @@ how well (or poorly) the agents are trained.
 \end{tcolorbox}
 \end{frame}
 
-% ── Slide 9 · VM Lifecycle & Simulator ───────────────────────────────────────
-\begin{frame}{Cloud Simulator --- VM Lifecycle \& Observation Space}
+% ── Slide 9 · Problem Modelling ──────────────────────────────────────────────
+\begin{frame}{Problem Modelling --- State Space \& VM Dynamics}
 \begin{columns}[T]
 \begin{column}{0.50\textwidth}
 
@@ -452,28 +453,19 @@ how well (or poorly) the agents are trained.
 \end{column}
 \begin{column}{0.48\textwidth}
 
-\textbf{Observation Vector (215 dims)}
+\textbf{Formal Problem (Dec-POMDP)}
 \vspace{0.15cm}
 
-\begin{tikzpicture}[scale=0.82, transform shape]
-% Stacked bar
-\fill[ACprimary!70]  (0,0) rectangle (4.0, 0.5);
-\fill[ACaccent!70]   (0,0.5) rectangle (2.65, 1.0);
-\fill[ACwarn!70]     (0,1.0) rectangle (0.5, 1.5);
-
-\node[font=\tiny, white] at (2.0, 0.25) {Node: 120 (20 VMs $\times$ 6)};
-\node[font=\tiny, white] at (1.33, 0.75) {Job: 80 (20 jobs $\times$ 4)};
-\node[font=\tiny]        at (2.5, 1.25) {Global: 15};
-\node[font=\tiny,ACgrey] at (0, -0.2)   {0};
-\node[font=\tiny,ACgrey] at (4.15,-0.2) {215};
-\end{tikzpicture}
-
-\vspace{0.05cm}
 \footnotesize
-\textbf{Node (6/VM):} CPU, mem, age, booting, active, draining\\[1pt]
-\textbf{Job (4/job):} service, wait, priority, deadline urgency\\[1pt]
-\textbf{Global (15):} active VMs, queue len, CPU/mem, $\hat{d}$, $\sigma$\\[2pt]
-{\tiny SimPy discrete-event + Gymnasium API. 30\,s/step, 120 steps = 1\,h.}
+\textbf{State} $s_t \in \mathbb{R}^{215}$:\\
+Node features (CPU, mem, status), job features (wait, priority), global metrics + forecaster $\hat{d},\sigma$\\[4pt]
+\textbf{Actions} (decomposed via I-PPO):\\
+$\cdot$ ScaleOut: $\{0,+1,+2\}$ VMs\\
+$\cdot$ Consolidation: drain mask $\{0,1\}^{20}$\\
+$\cdot$ Scheduling: priority strategy $\{0..4\}$\\[4pt]
+\textbf{Transition:} VM boot delays, job migration, stochastic workload arrival\\[4pt]
+\textbf{Objective:} Minimise $\sum_t \text{cost}_t$ subject to SLA $\geq 95\%$\\[5pt]
+{\tiny Joint space: $3 \!\times\! 2^{20} \!\times\! 5 \approx 15\text{M}$ decomposed to 3 independent sub-spaces}
 \end{column}
 \end{columns}
 \end{frame}
@@ -527,9 +519,9 @@ how well (or poorly) the agents are trained.
 
 \vspace{0.1cm}
 \begin{tcolorbox}[accentbox]
-\small \textbf{Why a simulator?} Training RL needs 100k+ environment steps.
-Resetting real cloud infrastructure 500 times is impossible --- bad actions during training
-would cause real outages. SimPy lets us train safely at scale.
+\small \textbf{Experimental protocol:} Each method evaluated over 5~episodes $\times$ 3~random seeds
+= 15~runs on Alibaba Cluster Trace 2018 (4,023 machines, 7 days).  Trained on Kaggle T4 GPU;
+total wall-clock time ${\sim}$50\,min.  All 7 methods share the same simulator and metrics.
 \end{tcolorbox}
 \end{frame}
 
@@ -638,23 +630,22 @@ Matches MPC while being fully \emph{learned}, not hand-tuned.
 
 \end{column}
 \begin{column}{0.45\textwidth}
-\vspace{0.3cm}
+\vspace{0.1cm}
 \begin{tcolorbox}[mybox, title={Why I-PPO wins}]
-\small
+\footnotesize
 \textbf{1. Smaller action spaces}\\
-\footnotesize Each agent: 3, $2^{20}$, or 5 --- not 15M joint\\[4pt]
-\small \textbf{2. Temporal hierarchy}\\
-\footnotesize Fast decisions (30s) can't mix with slow (5min) ones\\[4pt]
-\small \textbf{3. Per-agent rewards}\\
-\footnotesize Clearer learning signal per subtask\\[4pt]
-\small \textbf{4. Credit assignment}\\
-\footnotesize Easier to debug --- which agent caused a violation?
+\scriptsize Each agent: 3, $2^{20}$, or 5 --- not 15M joint\\[2pt]
+\footnotesize \textbf{2. Temporal hierarchy}\\
+\scriptsize Fast decisions (30s) don't mix with slow (5min)\\[2pt]
+\footnotesize \textbf{3. Per-agent rewards}\\
+\scriptsize Clearer learning signal per subtask\\[2pt]
+\footnotesize \textbf{4. Credit assignment}\\
+\scriptsize Easier to debug --- which agent caused a violation?
 \end{tcolorbox}
 
-\vspace{0.2cm}
+\vspace{0.1cm}
 \begin{tcolorbox}[warnbox]
-\small \textbf{+4.1\%} cost efficiency\\
-\textbf{+33.7\%} CPU utilization\\
+\footnotesize \textbf{+4.1\%} cost efficiency \quad \textbf{+33.7\%} CPU util.\\
 over single-agent RL
 \end{tcolorbox}
 \end{column}
@@ -703,53 +694,38 @@ and learned policy generalise to unseen workload shapes.
 \end{tcolorbox}
 \end{frame}
 
-% ── Slide 14 · Demo ───────────────────────────────────────────────────────────
-\begin{frame}{Live Demo --- \texttt{python demo.py}}
-\begin{center}
-\begin{tikzpicture}[
-  mode/.style={rectangle, rounded corners=5pt, draw, line width=1pt,
-    minimum width=2.8cm, minimum height=1.6cm, align=center, font=\small},
-  scale=0.88, transform shape
-]
-\node[mode, fill=ACprimary!12, draw=ACprimary] at (-4.8,0) {
-  \texttt{standard}\\[3pt]
-  \scriptsize RL agent vs\\one chosen baseline\\step-by-step
-};
-\node[mode, fill=ACaccent!12, draw=ACaccent] at (-1.6,0) {
-  \texttt{shootout}\\[3pt]
-  \scriptsize RL vs all\\5 baselines\\ranked table
-};
-\node[mode, fill=ACred!12, draw=ACred] at (1.6,0) {
-  \texttt{stress}\\[3pt]
-  \scriptsize Extreme workload\\RL vs chosen baseline\\4 scenarios
-};
-\node[mode, fill=ACwarn!12, draw=ACwarn] at (4.8,0) {
-  \texttt{ablation}\\[3pt]
-  \scriptsize 3-agent I-PPO\\vs Single-Agent\\PPO
-};
-\end{tikzpicture}
-\end{center}
-
-\vspace{0.2cm}
+% ── Slide 14 · Limitations & Future Work ─────────────────────────────────────
+\begin{frame}{Limitations \& Future Directions}
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
-\begin{tcolorbox}[accentbox]
-\small \textbf{Each step displays:}\\
-\textbullet{} forecaster predictions $\pm\sigma$\\
-\textbullet{} peak queue depth\\
-\textbullet{} VM state dots (booting/active/draining)\\
-\textbullet{} agent decisions + Safety Coordinator overrides\\
-\textbullet{} live cost \& cumulative SLA rate
+\begin{tcolorbox}[mybox, title={Current Limitations}]
+\small
+\textbf{1. Homogeneous VMs}\\
+\footnotesize Real clouds offer heterogeneous instances with varying CPU/memory/price\\[4pt]
+\small \textbf{2. Single-cluster scope}\\
+\footnotesize Production systems span thousands of clusters across regions\\[4pt]
+\small \textbf{3. Simplified networking}\\
+\footnotesize No cross-rack latency or bandwidth modelling\\[4pt]
+\small \textbf{4. Single-day training}\\
+\footnotesize Multi-day training with domain randomisation would improve generalisation
 \end{tcolorbox}
 \end{column}
 \begin{column}{0.48\textwidth}
+\vspace{0.0cm}
 \begin{tcolorbox}[accentbox]
-\small \textbf{Quick start:}\\
-\texttt{python demo.py} \quad (wizard)\\
-\texttt{python demo.py --mode stress}\\
-\texttt{python demo.py --mode shootout}\\
-\texttt{python demo.py --mode ablation}\\
-\texttt{python demo.py --no-pause --speed fast}
+\small \textbf{Future Directions:}\\[3pt]
+\footnotesize
+\textbullet{} Heterogeneous VMs with bin-packing strategies\\[2pt]
+\textbullet{} Multi-cluster federation (hierarchical agents)\\[2pt]
+\textbullet{} Vertical scaling (resize individual VMs)\\[2pt]
+\textbullet{} Transfer learning across traces (Azure, Borg)\\[2pt]
+\textbullet{} Spot/preemptible instance price-aware scaling\\[2pt]
+\textbullet{} Real Kubernetes deployment
+\end{tcolorbox}
+\vspace{0.15cm}
+\begin{tcolorbox}[warnbox]
+\small \textbf{Key open question:}\\
+\footnotesize Can temporal I-PPO decomposition scale to 100+ node types and multi-region federated clusters?
 \end{tcolorbox}
 \end{column}
 \end{columns}
