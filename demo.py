@@ -394,34 +394,8 @@ def print_comparison_table(results: dict):
 
 
 def print_what_happened():
-    """Educational summary of what the demo showed."""
-    print(f"""
-{BOLD}{BLUE}╔══════════════════════════════════════════════════════════════════════════╗
-║                         WHAT JUST HAPPENED?                              ║
-╚══════════════════════════════════════════════════════════════════════════╝{RESET}
-
-  {BOLD}1. Cloud Simulator{RESET} replayed real Alibaba workload data (30s intervals)
-
-  {BOLD}2. AutoCloud-Agent{RESET} (our RL system) used {CYAN}3 specialised neural networks{RESET}:
-     • {GREEN}ScaleOut Agent{RESET}    – decided when to add/remove VMs
-     • {GREEN}Consolidation Agent{RESET} – decided which idle VMs to drain
-     • {GREEN}Scheduling Agent{RESET}   – decided job priority ordering
-
-  {BOLD}3. Safety Coordinator{RESET} filtered dangerous actions:
-     • Never dropped below 3 nodes
-     • Blocked scale-down when forecaster was uncertain
-     • Protected booting nodes from premature drain
-
-  {BOLD}4. Workload Forecaster{RESET} (Transformer + MC Dropout):
-     • Predicted demand 1-15 steps ahead
-     • Uncertainty estimates guided proactive scaling
-
-  {BOLD}5. Kubernetes HPA{RESET} (industry baseline) used a fixed rule:
-     desiredReplicas = ceil(current × CPU / target)
-
-  {BOLD}Key insight:{RESET} RL agents learn {GREEN}proactive{RESET} policies (scale {ITALIC}before{RESET}
-  spikes), while HPA is purely {YELLOW}reactive{RESET} (scale {ITALIC}after{RESET} CPU exceeds threshold).
-""")
+    """Educational summary — now a no-op."""
+    pass
 
 
 # Baselines registry 
@@ -580,12 +554,22 @@ def interactive_setup(args) -> dict:
         print()
 
     elif chosen_mode == "stress":
-        print(f"  {BOLD}{MAGENTA}── 4. CHOOSE STRESS SCENARIO ──{RESET}")
+        print(f"  {BOLD}{MAGENTA}── 4a. CHOOSE STRESS SCENARIO ──{RESET}")
         for key, (name, desc) in STRESS_SCENARIOS.items():
             marker = f"{GREEN}★{RESET}" if key == "1" else " "
             print(f"  {CYAN}│{RESET}  {marker} {BOLD}{key}{RESET}. {name:<20} {DIM}{desc}{RESET}")
         stress_key = prompt_choice("Pick scenario (1-4)", STRESS_SCENARIOS, default="1")
         print(f"  {CYAN}│{RESET}  {GREEN}→ Selected: {BOLD}{STRESS_SCENARIOS[stress_key][0]}{RESET}")
+        print()
+
+        print(f"  {BOLD}{MAGENTA}── 4b. CHOOSE BASELINE TO COMPARE AGAINST ──{RESET}")
+        for key, (name, desc, _) in BASELINES.items():
+            marker = f"{GREEN}★{RESET}" if key == "1" else " "
+            print(f"  {CYAN}│{RESET}  {marker} {BOLD}{key}{RESET}. {name:<22} {DIM}{desc}{RESET}")
+        baseline_key = prompt_choice("Pick baseline (1-5)", BASELINES, default="1")
+        bl_name, bl_desc, bl_cls = BASELINES[baseline_key]
+        baseline_name, baseline_desc, baseline_cls = bl_name, bl_desc, bl_cls
+        print(f"  {CYAN}│{RESET}  {GREEN}→ Selected: {BOLD}{baseline_name}{RESET}")
         print()
 
     # 5. Demo Speed
@@ -610,6 +594,7 @@ def interactive_setup(args) -> dict:
         print(f"  {CYAN}│{RESET}  Baseline   : {BOLD}{baseline_name}{RESET}")
     elif chosen_mode == "stress":
         print(f"  {CYAN}│{RESET}  Scenario   : {BOLD}{STRESS_SCENARIOS[stress_key][0]}{RESET}")
+        print(f"  {CYAN}│{RESET}  Baseline   : {BOLD}{baseline_name}{RESET}")
     print(f"  {CYAN}│{RESET}  Speed      : {BOLD}{speed}{RESET}")
     print()
 
@@ -743,8 +728,11 @@ def _print_shootout_insights(results: dict):
 # Stress Test Mode
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_stress_demo(config, paths, seed, total_steps, delay, stress_key, pause_fn):
-    """Run AutoCloud-Agent and KubernetesHPA on a chosen stress scenario."""
+def run_stress_demo(config, paths, seed, total_steps, delay, stress_key, pause_fn,
+                    baseline_name="KubernetesHPA", baseline_cls=None):
+    """Run AutoCloud-Agent and a chosen baseline on a stress scenario."""
+    if baseline_cls is None:
+        baseline_cls = KubernetesHPA
     scenario_name, scenario_desc = STRESS_SCENARIOS[stress_key]
     stress_wl = make_stress_workload(stress_key, total_steps)
 
@@ -772,20 +760,23 @@ def run_stress_demo(config, paths, seed, total_steps, delay, stress_key, pause_f
         stress_wl, seed, total_steps, delay, is_rl=True,
     )
     print(f"  {BOLD}{GREEN}✓ AutoCloud-Agent complete!{RESET}")
-    pause_fn(f"  {BOLD}Press Enter to see KubernetesHPA on the same scenario...{RESET}")
+    pause_fn(f"  {BOLD}Press Enter to see {baseline_name} on the same scenario...{RESET}")
 
-    # Phase 2: HPA on same stress workload
+    # Phase 2: Baseline on same stress workload
     clear()
     print_phase_banner(
-        f"STRESS TEST — {scenario_name}  [KubernetesHPA baseline]",
-        "Industry baseline — reactive only, no forecaster"
+        f"STRESS TEST — {scenario_name}  [{baseline_name} baseline]",
+        f"Baseline: {baseline_name} — no RL forecaster"
     )
-    hpa_policy = KubernetesHPA()
-    sla_hpa, cost_hpa, _ = run_single_demo(
-        "KubernetesHPA", YELLOW, hpa_policy, config,
+    if baseline_name == "StaticN":
+        bl_policy = baseline_cls(n_nodes=10)
+    else:
+        bl_policy = baseline_cls()
+    sla_bl, cost_bl, _ = run_single_demo(
+        baseline_name, YELLOW, bl_policy, config,
         stress_wl, seed, total_steps, delay,
     )
-    print(f"  {BOLD}{YELLOW}✓ KubernetesHPA complete!{RESET}")
+    print(f"  {BOLD}{YELLOW}✓ {baseline_name} complete!{RESET}")
     pause_fn(f"  {BOLD}Press Enter for stress test results...{RESET}")
 
     # Results
@@ -796,35 +787,35 @@ def run_stress_demo(config, paths, seed, total_steps, delay, stress_key, pause_f
 
     print_comparison_table({
         "AutoCloud-Agent": {"sla": sla_rl,  "cost": cost_rl},
-        "KubernetesHPA":   {"sla": sla_hpa, "cost": cost_hpa},
+        baseline_name:     {"sla": sla_bl,  "cost": cost_bl},
     })
 
-    _print_stress_insights(stress_key, sla_rl, cost_rl, sla_hpa, cost_hpa)
+    _print_stress_insights(stress_key, sla_rl, cost_rl, sla_bl, cost_bl, baseline_name)
     print_what_happened()
 
 
-def _print_stress_insights(stress_key, sla_rl, cost_rl, sla_hpa, cost_hpa):
+def _print_stress_insights(stress_key, sla_rl, cost_rl, sla_bl, cost_bl, bl_name="KubernetesHPA"):
     """Print scenario-specific explanation of what we just saw."""
     insights = {
         "1": [
             "Ramp-Up: RL agent saw demand rising early via the Transformer forecaster",
             "→ It booted VMs 1-2 steps before CPU actually hit 80%",
-            "→ HPA had to react after threshold was crossed, causing brief queue build-up",
+            f"→ {bl_name} had to react after threshold was crossed, causing brief queue build-up",
         ],
         "2": [
             "Early Shock: Forecaster uncertainty spiked → Safety Coordinator fired proactive scale-out",
             "→ RL had extra VMs ready when the 4× shock hit",
-            "→ HPA's 5-minute cooldown meant it was still scaling when shock ended",
+            f"→ {bl_name} was still scaling reactively when shock ended",
         ],
         "3": [
             "Choppy Plateau: RL agent learned NOT to drain/provision on every noise fluctuation",
             "→ Stability penalty in reward discouraged thrashing",
-            "→ HPA oscillated (provision → drain → provision) causing cost and latency spikes",
+            f"→ {bl_name} oscillated causing cost and latency spikes",
         ],
         "4": [
             "Trough+Recovery: RL agent conserved VMs during the trough rather than draining all",
             "→ When load rebounded, it was ready without a slow re-boot phase",
-            "→ HPA drained aggressively at 0.3× load, then scrambled to re-provision",
+            f"→ {bl_name} drained aggressively at 0.3× load, then scrambled to re-provision",
         ],
     }
 
@@ -980,7 +971,8 @@ def main():
         run_shootout(config, workload_fn, paths, args.seed, total_steps, delay, pause)
 
     elif chosen_mode == "stress":
-        run_stress_demo(config, paths, args.seed, total_steps, delay, stress_key, pause)
+        run_stress_demo(config, paths, args.seed, total_steps, delay, stress_key, pause,
+                        baseline_name=baseline_name, baseline_cls=baseline_cls)
 
     elif chosen_mode == "ablation":
         run_ablation_demo(config, workload_fn, paths, args.seed, total_steps, delay, pause)

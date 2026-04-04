@@ -5,9 +5,6 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 
-# Checkpoints (large model weights — download from Kaggle)
-checkpoints/
-
 # Data files (large numpy arrays — download from Kaggle)
 data/
 *.npy

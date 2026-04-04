@@ -1,383 +1,800 @@
-\documentclass[aspectratio=169,11pt]{beamer}
+\documentclass[aspectratio=169,10pt]{beamer}
 
-\usetheme{Madrid}
-\usecolortheme{whale}
-\setbeamertemplate{navigation symbols}{}
-\setbeamertemplate{footline}[frame number]
+% ── Theme ────────────────────────────────────────────────────────────────────
+\usetheme{metropolis}
+\usepackage{appendixnumberbeamer}
 
+% ── Color palette ────────────────────────────────────────────────────────────
+\definecolor{ACprimary}{RGB}{15,76,129}     % deep navy
+\definecolor{ACaccent}{RGB}{0,168,168}      % teal
+\definecolor{ACwarn}{RGB}{230,100,30}       % orange
+\definecolor{ACgreen}{RGB}{34,139,80}       % green
+\definecolor{ACred}{RGB}{192,40,40}         % red
+\definecolor{ACgrey}{RGB}{90,100,115}       % grey
+\definecolor{ACbg}{RGB}{245,247,250}        % near-white bg
+
+\setbeamercolor{normal text}{fg=ACprimary}
+\setbeamercolor{frametitle}{bg=ACprimary, fg=white}
+\setbeamercolor{progress bar}{fg=ACaccent, bg=ACprimary!30}
+\setbeamercolor{title separator}{fg=ACaccent}
+\setbeamercolor{alerted text}{fg=ACwarn}
+\setbeamercolor{example text}{fg=ACgreen}
+\setbeamercolor{block title}{bg=ACprimary, fg=white}
+\setbeamercolor{block body}{bg=ACbg}
+
+% ── Packages ─────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc}
-\usepackage{graphicx}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc,
+                decorations.pathreplacing, backgrounds, shadows}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{xcolor}
 
-\title{\textbf{AutoCloud-Agent}\\Multi-Agent RL for Cloud Resource Management}
-\subtitle{Resource Management in the Cloud for Elasticity and Cost Minimization}
-\author{K Chaitanya (25CS60R28) \and Rahul K (25CS60R16) \and\\ Sri Lalitha Rama Siddesh Devarakonda (25CS60R80)}
-\institute{Indian Institute of Technology Kharagpur}
+% ── Metropolis settings ───────────────────────────────────────────────────────
+\metroset{
+  block=fill,
+  progressbar=frametitle,
+  titleformat=smallcaps,
+  numbering=fraction
+}
+
+% ── Custom tcolorboxes ────────────────────────────────────────────────────────
+\tcbset{
+  mybox/.style={
+    enhanced, colback=ACbg, colframe=ACprimary,
+    boxrule=0.8pt, arc=4pt, left=4pt, right=4pt, top=2pt, bottom=2pt,
+    fonttitle=\small\bfseries\color{white}, attach boxed title to top left={yshift=-2pt},
+    boxed title style={colback=ACprimary, colframe=ACprimary, arc=3pt}
+  },
+  accentbox/.style={
+    enhanced, colback=ACaccent!8, colframe=ACaccent,
+    boxrule=0.8pt, arc=4pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+  },
+  warnbox/.style={
+    enhanced, colback=ACwarn!8, colframe=ACwarn,
+    boxrule=0.8pt, arc=4pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+  }
+}
+
+% ── Metadata ─────────────────────────────────────────────────────────────────
+\title{\textbf{AutoCloud-Agent}}
+\subtitle{Multi-Agent Reinforcement Learning for Cloud Resource Management}
+\author{K~Chaitanya (25CS60R28)\\[4pt]
+        Rahul~K (25CS60R16)\\[4pt]
+        Sri~Lalitha~Rama~Siddesh~Devarakonda (25CS60R80)}
+\institute{Department of Computer Science and Engineering\\
+           Indian Institute of Technology Kharagpur}
 \date{April 2026}
 
+% ─────────────────────────────────────────────────────────────────────────────
 \begin{document}
 
-% Slide 1: Title
-\begin{frame}
-\titlepage
-\end{frame}
+% ── Slide 1 · Title ──────────────────────────────────────────────────────────
+\maketitle
 
-% Slide 2: Problem Statement
-\begin{frame}{Problem Statement}
-\textbf{Goal:} Manage cloud VMs to optimize two competing objectives:
-
-\vspace{0.3cm}
+% ── Slide 2 · Outline ────────────────────────────────────────────────────────
+\begin{frame}{Talk Outline}
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
-\textbf{Elasticity}
-\begin{itemize}
-  \item Scale up fast when demand spikes
-  \item Maintain SLA (P95 latency $<$ 500ms)
-  \item Handle VM boot delay (30--90s)
-\end{itemize}
+\begin{tcolorbox}[accentbox, title={}]
+\small
+\textcolor{ACaccent}{\textbf{1.}} Problem \& Motivation\\[2pt]
+\textcolor{ACaccent}{\textbf{2.}} System Architecture\\[2pt]
+\textcolor{ACaccent}{\textbf{3.}} Three RL Agents + I-PPO\\[2pt]
+\textcolor{ACaccent}{\textbf{4.}} Workload Forecaster
+\end{tcolorbox}
 \end{column}
 \begin{column}{0.48\textwidth}
-\textbf{Cost Minimization}
-\begin{itemize}
-  \item Scale down idle VMs aggressively
-  \item Avoid paying for unused resources
-  \item Pack jobs onto fewer machines
-\end{itemize}
+\begin{tcolorbox}[accentbox, title={}]
+\small
+\textcolor{ACaccent}{\textbf{5.}} Safety Coordinator\\[2pt]
+\textcolor{ACaccent}{\textbf{6.}} Cloud Simulator\\[2pt]
+\textcolor{ACaccent}{\textbf{7.}} Results \& Ablation\\[2pt]
+\textcolor{ACaccent}{\textbf{8.}} Conclusion
+\end{tcolorbox}
 \end{column}
 \end{columns}
-
-\vspace{0.5cm}
-\textbf{Limitations of existing approaches:}
-\begin{itemize}
-  \item Kubernetes HPA / AWS Auto Scaling: reactive, not proactive
-  \item Single-agent RL: combinatorial action space ($\sim$15M combinations)
-\end{itemize}
 \end{frame}
 
-% Slide 3: Our Approach
-\begin{frame}{Our Approach: Multi-Agent Decomposition}
-\textbf{Key idea:} Split resource management into 3 independent sub-problems,
-each handled by a separate PPO agent.
+% ── Slide 3 · Problem ────────────────────────────────────────────────────────
+\begin{frame}{The Problem: Two Competing Objectives}
 
-\vspace{0.3cm}
-\begin{center}
-\begin{tabular}{lccc}
-\toprule
-\textbf{Agent} & \textbf{Action} & \textbf{Frequency} & \textbf{Action Space} \\
-\midrule
-ScaleOut & Add/remove VMs & Every 10 steps (5 min) & 3 \\
-Consolidation & Drain idle VMs & Every 2 steps (1 min) & $2^{20}$ \\
-Scheduling & Assign job priority & Every step (30s) & 5 \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\vspace{0.3cm}
-\textbf{Result:} Joint space $3 \times 2^{20} \times 5 \approx 15$M
-$\rightarrow$ Three manageable independent spaces.
-\end{frame}
-
-% Slide 4: Architecture
-\begin{frame}{System Architecture}
 \begin{center}
 \begin{tikzpicture}[
-  block/.style={rectangle, draw, rounded corners, minimum height=0.8cm,
-    minimum width=2.2cm, align=center, font=\scriptsize},
-  agent/.style={block, fill=blue!12},
-  sim/.style={block, fill=green!12},
-  fore/.style={block, fill=orange!12},
-  coord/.style={block, fill=red!12},
-  arrow/.style={-{Stealth[length=5pt]}, thick},
-  every node/.style={font=\scriptsize},
-  scale=0.85, transform shape
+  box/.style={rectangle, rounded corners=5pt, minimum width=4.8cm,
+    minimum height=2.2cm, align=center, font=\small, draw, line width=1pt},
+  vs/.style={circle, draw=ACgrey, fill=white, minimum size=0.8cm,
+    font=\bfseries\small, text=ACgrey},
 ]
+% left
+\node[box, fill=ACaccent!12, draw=ACaccent] (el) at (-3.8,0) {
+  \textbf{\textcolor{ACaccent}{Elasticity}}\\[4pt]
+  Scale up \emph{before} demand spikes\\
+  SLA: P95 latency $<$ 500\,ms\\
+  VM boot delay: 30--90\,s
+};
+% right
+\node[box, fill=ACwarn!12, draw=ACwarn] (co) at (3.8,0) {
+  \textbf{\textcolor{ACwarn}{Cost Minimization}}\\[4pt]
+  Drain idle VMs aggressively\\
+  Pack jobs tightly\\
+  Never pay for idle cores
+};
+\node[vs] (vsn) at (0,0) {vs.};
+\draw[-{Stealth}, ACaccent, thick] (el.east) -- (vsn.west);
+\draw[-{Stealth}, ACwarn, thick] (co.west) -- (vsn.east);
+\end{tikzpicture}
+\end{center}
 
-\node[sim] (env) at (0,0) {Cloud Simulator\\(Gymnasium)};
-\node[block, fill=gray!12] (obs) at (0,1.6) {Observation\\(215 features)};
-\node[agent] (so) at (-3.8,3.5) {ScaleOut\\Agent};
-\node[agent] (con) at (0,3.5) {Consolidation\\Agent};
-\node[agent] (sch) at (3.8,3.5) {Scheduling\\Agent};
-\node[fore] (fc) at (-3.8,1.6) {Workload\\Forecaster};
-\node[coord] (safety) at (0,5.3) {Safety\\Coordinator};
-\node[block, fill=gray!12] (act) at (0,-1.6) {Joint Action};
+\vspace{0.1cm}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{tcolorbox}[warnbox]
+\small \textbf{Why existing methods fail:}\\
+Kubernetes HPA / AWS Auto Scaling are \emph{reactive} --- they respond \emph{after}
+CPU crosses a threshold. By then, VMs need 60s to boot and SLA is already violated.
+\end{tcolorbox}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{tcolorbox}[warnbox]
+\small \textbf{Why single-agent RL fails:}\\
+Joint action space = $3 \times 2^{20} \times 5 \approx \mathbf{15\,M}$ combinations.
+Too large to learn efficiently from scratch.
+\end{tcolorbox}
+\end{column}
+\end{columns}
+\end{frame}
 
-\draw[arrow] (env) -- (obs);
-\draw[arrow] (obs) -- (so);
-\draw[arrow] (obs) -- (con);
-\draw[arrow] (obs) -- (sch);
-\draw[arrow] (obs) -- (fc);
-\draw[arrow] (so) -- (safety);
-\draw[arrow] (con) -- (safety);
-\draw[arrow] (sch) -- (safety);
-\draw[arrow, dashed, orange!70!black] (fc) -- node[left]{uncertainty} (safety);
-\draw[arrow] (safety) -- ++(3,0) |- (act);
-\draw[arrow] (act) -- (env);
+% ── Slide 4 · System Architecture ────────────────────────────────────────────
+\begin{frame}{System Architecture}
+\vspace{-0.2cm}
+\begin{center}
+\begin{tikzpicture}[
+  box/.style={rectangle, draw, rounded corners=4pt, minimum height=0.7cm,
+              minimum width=2.0cm, align=center, font=\scriptsize\bfseries},
+  agent/.style={box, fill=ACprimary!15, draw=ACprimary},
+  sim/.style={box, fill=ACgreen!15, draw=ACgreen!70!black},
+  fore/.style={box, fill=ACwarn!15, draw=ACwarn},
+  coord/.style={box, fill=ACred!15, draw=ACred},
+  obsbox/.style={box, fill=ACgrey!12, draw=ACgrey},
+  arr/.style={-{Stealth[length=4pt]}, thick},
+  darr/.style={-{Stealth[length=4pt]}, dashed, thick},
+  lbl/.style={font=\tiny, text=ACgrey},
+  scale=0.82, transform shape
+]
+% Nodes
+\node[sim]    (env)    at (0, 0)    {Cloud Simulator\\(SimPy + Gymnasium)};
+\node[obsbox] (obs)    at (0, 1.6)  {Observation Vector (215-dim)};
+\node[fore]   (fc)     at (-3.5,1.6){Workload\\Forecaster};
+\node[agent]  (so)     at (-3.2,3.4){ScaleOut Agent\\{\tiny 10 steps / 5\,min}};
+\node[agent]  (con)    at (0, 3.4)  {Consolidation Agent\\{\tiny 2 steps / 1\,min}};
+\node[agent]  (sch)    at (3.2,3.4) {Scheduling Agent\\{\tiny every step / 30\,s}};
+\node[coord]  (safety) at (0, 5.0)  {Safety Coordinator\\(7 hard filters)};
+% Arrows: obs to agents & forecaster
+\draw[arr, ACgreen!70!black]  (env) -- (obs);
+\draw[arr, ACwarn]            (obs) -- (fc);
+\draw[arr, ACgrey]            (obs) -- (so);
+\draw[arr, ACgrey]            (obs) -- (con);
+\draw[arr, ACgrey]            (obs) -- (sch);
+% Forecaster to ScaleOut
+\draw[darr,ACwarn]            (fc)  -- node[lbl,right]{$\hat{d},\sigma$} (so);
+% Forecaster uncertainty to Safety (routed along left margin)
+\draw[darr,ACwarn,rounded corners=3pt]
+    (fc.west) -- ++(-0.8,0) |- (safety.west);
+\node[lbl,ACwarn,rotate=90] at (-5.0,3.3) {\tiny uncertainty};
+% Agents to Safety
+\draw[arr, ACprimary]         (so)  -- (safety);
+\draw[arr, ACprimary]         (con) -- (safety);
+\draw[arr, ACprimary]         (sch) -- (safety);
+% Safety output: feedback routed along right margin
+\draw[arr, ACred, rounded corners=6pt]
+    (safety.east) -| (4.5, 0) -- (env.east);
+\node[lbl,ACred,rotate=-90] at (4.9,2.5) {filtered action};
 \end{tikzpicture}
 \end{center}
 \end{frame}
 
-% Slide 5: RL Algorithm
-\begin{frame}{RL Algorithm: Independent PPO (I-PPO)}
-Each agent uses Proximal Policy Optimization [Schulman et al., 2017]:
+% ── Slide 5 · Three Agents ───────────────────────────────────────────────────
+\begin{frame}{Three Specialized Agents --- Temporal Hierarchy}
+\vspace{-0.1cm}
+\begin{center}
+\begin{tikzpicture}[
+  agent/.style={rectangle, rounded corners=5pt, draw, line width=1pt,
+                minimum height=2.8cm, minimum width=3.6cm, align=center,
+                font=\small},
+  timeline/.style={very thick, -{Stealth[length=5pt]}},
+  tick/.style={thick},
+  scale=0.9, transform shape
+]
+% Agents
+\node[agent, fill=ACprimary!15, draw=ACprimary] (so) at (-4.5,0) {
+  \textbf{\textcolor{ACprimary}{ScaleOut Agent}}\\[4pt]
+  Action: $\{0,+1,+2\}$ VMs\\
+  Space: \textcolor{ACprimary}{\textbf{3}}\\[4pt]
+  \footnotesize Every \textbf{10 steps} (5 min)\\
+  \footnotesize Capacity planning
+};
+\node[agent, fill=ACaccent!15, draw=ACaccent] (con) at (0,0) {
+  \textbf{\textcolor{ACaccent}{Consolidation Agent}}\\[4pt]
+  Action: drain mask $\{0,1\}^{20}$\\
+  Space: \textcolor{ACaccent}{\textbf{$2^{20}$}}\\[4pt]
+  \footnotesize Every \textbf{2 steps} (1 min)\\
+  \footnotesize Cost optimization
+};
+\node[agent, fill=ACgreen!15, draw=ACgreen!70!black] (sch) at (4.5,0) {
+  \textbf{\textcolor{ACgreen!70!black}{Scheduling Agent}}\\[4pt]
+  Action: priority $\{0..4\}$\\
+  Space: \textcolor{ACgreen!70!black}{\textbf{5}}\\[4pt]
+  \footnotesize Every \textbf{step} (30 s)\\
+  \footnotesize Job dispatch
+};
 
+% Timeline bar
+\draw[timeline, ACgrey!60] (-6.8,-2) -- (6.8,-2) node[right,font=\small]{time};
+\foreach \x in {-6,-4,...,6} { \draw[tick,ACgrey!60] (\x,-1.85) -- (\x,-2.15); }
+% Markers
+\foreach \x in {-6,-4,...,6} {
+  \fill[ACgreen!70!black] (\x,-2) circle(2.5pt);
+}
+\foreach \x in {-6,-2,2,6} {
+  \fill[ACaccent] (\x,-2) circle(3.5pt);
+}
+\fill[ACprimary] (-6,-2) circle(5pt);
+\node[font=\tiny, text=ACgreen!70!black, anchor=north] at (0,-2.2) {Sch: every step (30\,s)};
+\node[font=\tiny, text=ACaccent, anchor=north]         at (0,-2.5) {Con: every 2 steps (1\,min)};
+\node[font=\tiny, text=ACprimary, anchor=north]        at (0,-2.8) {SO: every 10 steps (5\,min)};
+\end{tikzpicture}
+\end{center}
+
+\vspace{-0.45cm}
+\begin{center}
+\small \textbf{Key:} joint space $3 \!\times\! 2^{20} \!\times\! 5 \approx 15\text{M}$
+\;\textcolor{ACwarn}{\textbf{$\to$}}\;
+three independent spaces of size \textbf{3}, $\mathbf{2^{20}}$, \textbf{5}
+\end{center}
+\end{frame}
+
+% ── Slide 6 · I-PPO Algorithm ────────────────────────────────────────────────
+\begin{frame}{Independent PPO (I-PPO) --- How Each Agent Learns}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
+\vspace{0.1cm}
+\begin{tcolorbox}[mybox, title={PPO Clipped Objective}]
+\vspace{-0.1cm}
 \[
-  L^{\text{CLIP}} = \mathbb{E}\left[\min\left(
+  L^{\text{CLIP}} = \mathbb{E}\!\left[\min\!\left(
     r_t \hat{A}_t,\;
-    \text{clip}(r_t, 1{-}\epsilon, 1{+}\epsilon)\,\hat{A}_t
+    \mathrm{clip}(r_t,\,1{-}\epsilon,\,1{+}\epsilon)\hat{A}_t
   \right)\right]
 \]
+\vspace{-0.2cm}
+\small where $r_t = \dfrac{\pi_\theta(a_t|s_t)}{\pi_{\theta_\mathrm{old}}(a_t|s_t)}$
+\end{tcolorbox}
 
-\begin{columns}[T]
+\vspace{0.2cm}
+\begin{tcolorbox}[accentbox]
+\small
+\textbf{MLP Architecture} (each agent):\\
+$215 \to 512 \xrightarrow{\text{LN+ReLU}} 256 \xrightarrow{\text{LN+ReLU}} 128 \to \text{head}$\\[4pt]
+Separate \textbf{Actor} (policy) + \textbf{Critic} (value)
+\end{tcolorbox}
+\end{column}
+
 \begin{column}{0.48\textwidth}
-\textbf{Network:}
-\begin{itemize}
-  \item 3-layer MLP + LayerNorm
-  \item 512 $\to$ 256 $\to$ 128 $\to$ action
-  \item Separate actor \& critic
-\end{itemize}
-\end{column}
-\begin{column}{0.48\textwidth}
-\textbf{Hyperparameters:}
-\begin{itemize}
-  \item $\gamma = 0.99$, $\lambda = 0.95$
-  \item Clip $\epsilon = 0.2$
-  \item LR: $3 \times 10^{-4}$ (Adam)
-  \item Entropy: $0.01 \to 0.001$
-\end{itemize}
-\end{column}
-\end{columns}
+% Training loop diagram
+\begin{tikzpicture}[
+  sbox/.style={rectangle, rounded corners=3pt, draw=ACprimary, fill=ACprimary!10,
+    minimum width=3.0cm, minimum height=0.48cm, align=center, font=\scriptsize},
+  rarr/.style={-{Stealth[length=3.5pt]}, ACprimary, thick},
+  scale=0.92, transform shape
+]
+\node[sbox] (s1) at (0,4.2) {Run env for 2048 steps};
+\node[sbox] (s2) at (0,3.4) {Compute GAE advantages};
+\node[sbox] (s3) at (0,2.6) {Normalize advantages};
+\node[sbox] (s4) at (0,1.8) {4 PPO update epochs};
+\node[sbox] (s5) at (0,1.0) {Clip ratio to $[0.8,\,1.2]$};
+\node[sbox] (s6) at (0,0.2) {Clear buffer $\to$ repeat};
 
-\vspace{0.3cm}
-\textbf{Agent-specific rewards:} ScaleOut (provisioning cost + SLA), Consolidation (running cost + migration), Scheduling (wait time + SLA)
-\end{frame}
+\draw[rarr] (s1)--(s2); \draw[rarr] (s2)--(s3);
+\draw[rarr] (s3)--(s4); \draw[rarr] (s4)--(s5);
+\draw[rarr] (s5)--(s6);
+\draw[rarr, rounded corners=4pt] (s6.east) -- ++(0.6,0)
+           -- ++(0,4.0) -- (s1.east);
 
-% Slide 6: Forecaster
-\begin{frame}{Workload Forecaster: Transformer + MC Dropout}
-\begin{columns}[T]
-\begin{column}{0.55\textwidth}
-\textbf{Input:} 20 time steps $\times$ 4 features\\
-(CPU, queue length, hour, day-of-week)
+\node[font=\tiny, ACaccent] at (1.0,2.2) {loop};
+\end{tikzpicture}
 
-\vspace{0.3cm}
-\textbf{Architecture:}
-\begin{itemize}
-  \item 2-layer Transformer encoder
-  \item 4 attention heads, 64-dim hidden
-  \item Quantile regression (10th, 50th, 90th)
-\end{itemize}
-
-\vspace{0.3cm}
-\textbf{Uncertainty [Gal \& Ghahramani, 2016]:}
-\begin{itemize}
-  \item 30 stochastic forward passes
-  \item MC Dropout $\to$ variance = uncertainty $\sigma$
-  \item Cheaper than ensemble ($5\times$ fewer params)
-\end{itemize}
-\end{column}
-\begin{column}{0.43\textwidth}
-\textbf{Predictions:}
-\begin{itemize}
-  \item $t{+}1$, $t{+}5$, $t{+}10$, $t{+}15$
-  \item 3 quantiles each
-  \item Uncertainty $\sigma$ per horizon
-\end{itemize}
-
-\vspace{0.3cm}
-\textbf{What it enables:}
-\begin{itemize}
-  \item Proactive scaling (pre-boot VMs)
-  \item Safety: if $\sigma > 0.3$, suppress draining
-  \item Better resource planning
-\end{itemize}
+\vspace{0.1cm}
+\small\textbf{Hyperparams:} $\gamma\!=\!0.99$, $\lambda\!=\!0.95$, $\epsilon\!=\!0.2$,
+lr$\!=\!3\!\times\!10^{-4}$, entropy $0.01{\to}0.001$
 \end{column}
 \end{columns}
 \end{frame}
 
-% Slide 7: Safety Coordinator
-\begin{frame}{Safety Coordinator}
-Rule-based post-processing filter. Guarantees safety regardless of policy quality.
+% ── Slide 7 · Workload Forecaster ────────────────────────────────────────────
+\begin{frame}{Workload Forecaster --- Transformer + MC Dropout}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
 
-\vspace{0.3cm}
+% Architecture pipeline
+\begin{tikzpicture}[
+  blk/.style={rectangle, rounded corners=3pt, draw, minimum width=3.6cm,
+    minimum height=0.5cm, align=center, font=\scriptsize\bfseries},
+  arr/.style={-{Stealth[length=3.5pt]}, thick},
+  scale=0.9, transform shape
+]
+\node[blk, fill=ACwarn!15, draw=ACwarn]   (inp) at (0,4.5) {Input: 20 steps $\times$ 4 features};
+\node[blk, fill=ACgrey!12, draw=ACgrey]   (pe)  at (0,3.7) {Sinusoidal positional encoding};
+\node[blk, fill=ACprimary!12,draw=ACprimary](e1) at (0,2.9) {Transformer Encoder layer 1};
+\node[blk, fill=ACprimary!12,draw=ACprimary](e2) at (0,2.1) {Transformer Encoder layer 2};
+\node[blk, fill=ACgrey!12, draw=ACgrey]   (hd)  at (0,1.3) {4 output heads (t+1,5,10,15)};
+\node[blk, fill=ACgrey!12, draw=ACgrey]   (q)   at (0,0.5) {3 quantiles each (q10, q50, q90)};
+
+\draw[arr,ACwarn]     (inp)--(pe);
+\draw[arr,ACprimary]  (pe)--(e1);
+\draw[arr,ACprimary]  (e1)--(e2);
+\draw[arr,ACgrey]     (e2)--(hd);
+\draw[arr,ACgrey]     (hd)--(q);
+
+% MC Dropout annotation
+\node[rectangle, rounded corners=3pt, fill=ACred!15, draw=ACred,
+      font=\tiny\bfseries, align=center] (mc) at (3.5,1.5)
+     {MC Dropout\\30 passes\\$\to$ $\sigma$};
+\draw[-{Stealth},ACred,dashed] (mc) -- (hd.east);
+\end{tikzpicture}
+
+\end{column}
+\begin{column}{0.47\textwidth}
+\vspace{0.2cm}
+\begin{tcolorbox}[mybox, title={Why MC Dropout?}]
+\small
+Keep dropout \textbf{on} at inference.\\
+Run 30 forward passes $\to$ 30 different predictions.\\[4pt]
+$\sigma = \mathrm{var}(\text{30 outputs})$\\[4pt]
+\textbf{Low} $\sigma$ $\to$ model confident $\to$ act normally\\
+\textbf{High} $\sigma$ $\to$ model uncertain $\to$ Safety Coordinator blocks drains and forces scale-up
+\end{tcolorbox}
+
+\vspace{0.2cm}
+\begin{tcolorbox}[accentbox]
+\small \textbf{Forecaster output injected into obs[200:215]:}\\
+means $[\hat{d}_{t+1}, \hat{d}_{t+5}, \hat{d}_{t+10}, \hat{d}_{t+15}]$\\
+sigmas $[\sigma_{t+1}, \sigma_{t+5}, \sigma_{t+10}, \sigma_{t+15}]$
+\end{tcolorbox}
+
+\vspace{0.2cm}
+\begin{tcolorbox}[warnbox]
+\small \textbf{Cost:} 1 model $\times$ 30 passes vs 5 ensemble models $\to$ \textbf{5$\times$ cheaper}
+\end{tcolorbox}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ── Slide 8 · Safety Coordinator ─────────────────────────────────────────────
+\begin{frame}{Safety Coordinator --- 7-Filter Pipeline}
+\vspace{-0.2cm}
 \begin{center}
-\begin{tabular}{clp{6.5cm}}
-\toprule
-\textbf{\#} & \textbf{Filter} & \textbf{Rule} \\
-\midrule
-1 & Boot Protection & Never drain a node younger than boot\_time + 60s \\
-2 & $N_{\min}$ Floor & Never go below 3 active nodes \\
-3 & Uncertainty Suppression & If $\sigma > 0.3$, block all drain actions \\
-3b & High-Load Guard & Suppress drains if CPU $>75\%$ OR queue $>10$ OR booting $>0$ \\
-4 & Scale-Out Suppression & Block scale-up if $\geq$2 nodes booting \\
-5 & Proactive Scale-Out & If $\sigma > 0.3$ AND CPU rising, force +1 \\
-6 & Queue Emergency & Force +1 VM if queue $>40$; +2 if queue $>120$ \\
-\bottomrule
-\end{tabular}
+\begin{tikzpicture}[
+  filter/.style={rectangle, rounded corners=3pt, draw=ACprimary, fill=ACprimary!10,
+    minimum width=2.0cm, minimum height=0.75cm, align=center, font=\tiny\bfseries},
+  emerg/.style={rectangle, rounded corners=3pt, draw=ACred, fill=ACred!10,
+    minimum width=2.0cm, minimum height=0.75cm, align=center, font=\tiny\bfseries},
+  arr/.style={-{Stealth[length=3.5pt]}, thick, ACprimary},
+  scale=0.88, transform shape
+]
+% Row 1 (left to right)
+\node[filter] (raw) at (-4.5, 1.6) {Raw Actions\\(3 Agents)};
+\node[filter] (f1)  at (-2.25,1.6) {F1: Boot\\Protect};
+\node[filter] (f2)  at ( 0.0, 1.6) {F2: $N_{\min}$\\Floor ($\geq$3)};
+\node[filter] (f3)  at ( 2.25,1.6) {F3: Uncert.\\Hold};
+\node[filter] (f3b) at ( 4.5, 1.6) {F3b: High-Load\\Guard};
+% Row 2 (right to left after bend)
+\node[filter] (f4)  at ( 4.5, 0.0) {F4: Suppress\\Overshoot};
+\node[filter] (f5)  at ( 2.25,0.0) {F5: Proactive\\Scale-Out};
+\node[emerg]  (f6)  at ( 2.25,-1.3){F6: Queue\\Emergency};
+\node[filter] (out) at ( 0.0, 0.0) {Safe\\Action};
+% Row 1 arrows
+\draw[arr] (raw)--(f1); \draw[arr] (f1)--(f2);
+\draw[arr] (f2)--(f3);  \draw[arr] (f3)--(f3b);
+% Bend: F3b down to F4
+\draw[arr] (f3b.south) -- (f4.north);
+% Row 2 arrows (right to left)
+\draw[arr] (f4.west)--(f5.east);
+\draw[arr] (f5.west)--(out.east);
+% F6 emergency feed
+\draw[-{Stealth[length=3.5pt]}, thick, ACred] (f6.north) -- (f5.south);
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.15cm}
+\begin{tcolorbox}[accentbox]
+\small
+\textbf{Key insight:} Hard constraints in the \emph{reward} only penalise violations ---
+they do not \emph{prevent} them. The coordinator runs \emph{after} the agents and
+\emph{guarantees} no unsafe action ever reaches the simulator, regardless of
+how well (or poorly) the agents are trained.
+\end{tcolorbox}
+\end{frame}
+
+% ── Slide 9 · VM Lifecycle & Simulator ───────────────────────────────────────
+\begin{frame}{Cloud Simulator --- VM Lifecycle \& Observation Space}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
+
+\textbf{VM State Machine}
+\vspace{0.15cm}
+
+\begin{tikzpicture}[
+  state/.style={ellipse, draw, line width=1pt, minimum width=1.7cm,
+    minimum height=0.6cm, align=center, font=\scriptsize\bfseries},
+  arr/.style={-{Stealth[length=4pt]}, thick},
+  lbl/.style={font=\tiny},
+  scale=0.75, transform shape
+]
+\node[state, fill=ACwarn!20, draw=ACwarn]    (boot) at (0,5.0)   {BOOTING\\30--90 s};
+\node[state, fill=ACgreen!20,draw=ACgreen!70!black] (act) at (0,3.3) {ACTIVE\\accepts jobs};
+\node[state, fill=ACred!20,  draw=ACred]    (drain) at (0,1.6) {DRAINING\\migrate jobs};
+\node[state, fill=ACgrey!20, draw=ACgrey]  (term) at (0,0.0)  {TERMINATED\\no cost};
+
+\draw[arr,ACwarn]         (boot) -- node[lbl,right]{boot done} (act);
+\draw[arr,ACred]          (act)  -- node[lbl,right]{drain cmd} (drain);
+\draw[arr,ACgrey]         (drain)-- node[lbl,right]{all migrated} (term);
+\draw[arr,rounded corners,ACprimary,dashed]
+  (term.east) -- ++(1.2,0) -- ++(0,5.0) -- node[lbl,right]{provision} (boot.east);
+\end{tikzpicture}
+
+\end{column}
+\begin{column}{0.48\textwidth}
+
+\textbf{Observation Vector (215 dims)}
+\vspace{0.15cm}
+
+\begin{tikzpicture}[scale=0.82, transform shape]
+% Stacked bar
+\fill[ACprimary!70]  (0,0) rectangle (4.0, 0.5);
+\fill[ACaccent!70]   (0,0.5) rectangle (2.65, 1.0);
+\fill[ACwarn!70]     (0,1.0) rectangle (0.5, 1.5);
+
+\node[font=\tiny, white] at (2.0, 0.25) {Node: 120 (20 VMs $\times$ 6)};
+\node[font=\tiny, white] at (1.33, 0.75) {Job: 80 (20 jobs $\times$ 4)};
+\node[font=\tiny]        at (2.5, 1.25) {Global: 15};
+\node[font=\tiny,ACgrey] at (0, -0.2)   {0};
+\node[font=\tiny,ACgrey] at (4.15,-0.2) {215};
+\end{tikzpicture}
+
+\vspace{0.05cm}
+\footnotesize
+\textbf{Node (6/VM):} CPU, mem, age, booting, active, draining\\[1pt]
+\textbf{Job (4/job):} service, wait, priority, deadline urgency\\[1pt]
+\textbf{Global (15):} active VMs, queue len, CPU/mem, $\hat{d}$, $\sigma$\\[2pt]
+{\tiny SimPy discrete-event + Gymnasium API. 30\,s/step, 120 steps = 1\,h.}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ── Slide 10 · Training Pipeline ─────────────────────────────────────────────
+\begin{frame}{Training Pipeline}
+\vspace{-0.1cm}
+\begin{center}
+\begin{tikzpicture}[
+  phase/.style={rectangle, rounded corners=5pt, draw, line width=1pt,
+    minimum width=2.6cm, minimum height=1.5cm, align=center, font=\small},
+  arr/.style={-{Stealth[length=5pt]}, very thick},
+  lbl/.style={font=\tiny, text=ACgrey, align=center},
+  scale=0.82, transform shape
+]
+\node[phase, fill=ACwarn!15, draw=ACwarn]    (d)  at (-5.0,0) {
+  \textbf{\textcolor{ACwarn}{Data}}\\[2pt]
+  \scriptsize Alibaba 2018 trace\\
+  4,023 machines\\
+  7 days $\to$ .npy
+};
+\node[phase, fill=ACaccent!15, draw=ACaccent] (fc) at (-1.7,0) {
+  \textbf{\textcolor{ACaccent}{Phase A}}\\[2pt]
+  \scriptsize Train Transformer\\
+  Day 1 workload\\
+  Quantile + MSE
+};
+\node[phase, fill=ACprimary!15, draw=ACprimary] (rl) at (1.6,0) {
+  \textbf{\textcolor{ACprimary}{Phase B}}\\[2pt]
+  \scriptsize I-PPO, 3 agents\\
+  Day 2, 100k steps\\
+  6 checkpoints
+};
+\node[phase, fill=ACgreen!15, draw=ACgreen!70!black] (ev) at (5.0,0) {
+  \textbf{\textcolor{ACgreen!70!black}{Phase C}}\\[2pt]
+  \scriptsize 7 methods\\
+  5 eps $\times$ 3 seeds\\
+  \texttt{evaluate.py}
+};
+
+\draw[arr,ACwarn]    (d.east) -- (fc.west);
+\draw[arr,ACaccent]  (fc.east)-- (rl.west);
+\draw[arr,ACprimary] (rl.east)-- (ev.west);
+
+\node[lbl] at (-5.0,-1.3) {7 days};
+\node[lbl] at (-1.7,-1.3) {$\sim$20 min (T4)};
+\node[lbl] at (1.6,-1.3)  {$\sim$30 min (T4)};
+\node[lbl] at (5.0,-1.3)  {$\sim$5 min (CPU)};
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.1cm}
+\begin{tcolorbox}[accentbox]
+\small \textbf{Why a simulator?} Training RL needs 100k+ environment steps.
+Resetting real cloud infrastructure 500 times is impossible --- bad actions during training
+would cause real outages. SimPy lets us train safely at scale.
+\end{tcolorbox}
+\end{frame}
+
+% ── Slide 11 · Results ───────────────────────────────────────────────────────
+\begin{frame}{Results --- Alibaba Cluster Trace 2018}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
+\vspace{0.1cm}
+
+% Bar chart: Cost Efficiency
+\begin{tikzpicture}
+\begin{axis}[
+  xbar, xmin=0.90, xmax=0.975,
+  width=5.2cm, height=4.2cm,
+  bar width=0.28cm,
+  ytick=data,
+  yticklabels={AutoCloud, MPC, Threshold, StaticN, K8s HPA, AWS TT, SinglePPO},
+  yticklabel style={font=\tiny},
+  xticklabel style={font=\tiny},
+  xlabel={\scriptsize Cost Efficiency},
+  xlabel style={font=\scriptsize},
+  nodes near coords,
+  nodes near coords align={horizontal},
+  every node near coord/.style={font=\tiny},
+  axis line style={ACgrey},
+  tick style={ACgrey},
+  bar shift=0,
+]
+\addplot[fill=ACprimary!80, draw=ACprimary] coordinates {
+  (0.962,7)(0.962,6)(0.955,5)(0.938,4)(0.930,3)(0.928,2)(0.924,1)};
+\end{axis}
+\end{tikzpicture}
+
+\end{column}
+\begin{column}{0.48\textwidth}
+\vspace{0.1cm}
+
+% Bar chart: CPU Utilisation
+\begin{tikzpicture}
+\begin{axis}[
+  xbar, xmin=0.0, xmax=0.65,
+  width=5.2cm, height=4.2cm,
+  bar width=0.28cm,
+  ytick=data,
+  yticklabels={AutoCloud, MPC, Threshold, SinglePPO, StaticN, K8s HPA, AWS TT},
+  yticklabel style={font=\tiny},
+  xticklabel style={font=\tiny},
+  xlabel={\scriptsize CPU Utilization},
+  xlabel style={font=\scriptsize},
+  nodes near coords,
+  nodes near coords align={horizontal},
+  every node near coord/.style={font=\tiny},
+  axis line style={ACgrey},
+  tick style={ACgrey},
+]
+\addplot[fill=ACaccent!80, draw=ACaccent] coordinates {
+  (0.552,7)(0.552,6)(0.483,5)(0.413,4)(0.333,3)(0.312,2)(0.295,1)};
+\end{axis}
+\end{tikzpicture}
+
+\end{column}
+\end{columns}
+
+\vspace{0.05cm}
+\begin{columns}
+\begin{column}{0.5\textwidth}
+\begin{tcolorbox}[accentbox]
+\tiny All 7 methods achieve \textbf{100\% SLA compliance}.\\
+Differentiator is cost efficiency and CPU utilization.
+\end{tcolorbox}
+\end{column}
+\begin{column}{0.5\textwidth}
+\begin{tcolorbox}[warnbox]
+\tiny AutoCloud beats K8s HPA by \textbf{+3.4\%} cost, \textbf{+77\%} CPU util.\\
+Matches MPC while being fully \emph{learned}, not hand-tuned.
+\end{tcolorbox}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ── Slide 12 · Ablation ──────────────────────────────────────────────────────
+\begin{frame}{Ablation --- Why Multi-Agent Decomposition?}
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
+
+\begin{tikzpicture}[scale=0.85, transform shape]
+\begin{axis}[
+  ybar,
+  bar width=0.7cm,
+  ymin=0, ymax=0.70,
+  xtick={1,2},
+  xticklabels={AutoCloud\\(I-PPO), Single-Agent\\PPO},
+  xticklabel style={font=\footnotesize, align=center, text width=2.2cm},
+  yticklabel style={font=\small},
+  ylabel={\small Value},
+  enlarge x limits=0.4,
+  legend style={font=\small, at={(0.5,1.0)}, anchor=south, legend columns=2},
+  ytick={0,0.1,...,0.7},
+  width=6.5cm, height=5.0cm,
+]
+\addplot[fill=ACprimary!80]  coordinates {(1,0.962)(2,0.924)};
+\addplot[fill=ACaccent!80]   coordinates {(1,0.552)(2,0.413)};
+\legend{Cost Eff., CPU Util.}
+\end{axis}
+\end{tikzpicture}
+
+\end{column}
+\begin{column}{0.45\textwidth}
+\vspace{0.3cm}
+\begin{tcolorbox}[mybox, title={Why I-PPO wins}]
+\small
+\textbf{1. Smaller action spaces}\\
+\footnotesize Each agent: 3, $2^{20}$, or 5 --- not 15M joint\\[4pt]
+\small \textbf{2. Temporal hierarchy}\\
+\footnotesize Fast decisions (30s) can't mix with slow (5min) ones\\[4pt]
+\small \textbf{3. Per-agent rewards}\\
+\footnotesize Clearer learning signal per subtask\\[4pt]
+\small \textbf{4. Credit assignment}\\
+\footnotesize Easier to debug --- which agent caused a violation?
+\end{tcolorbox}
+
+\vspace{0.2cm}
+\begin{tcolorbox}[warnbox]
+\small \textbf{+4.1\%} cost efficiency\\
+\textbf{+33.7\%} CPU utilization\\
+over single-agent RL
+\end{tcolorbox}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ── Slide 13 · Stress Testing ────────────────────────────────────────────────
+\begin{frame}{Stress Testing --- 4 Out-of-Distribution Scenarios}
+\vspace{-0.1cm}
+\begin{center}
+\begin{tikzpicture}[
+  box/.style={rectangle, rounded corners=5pt, draw, line width=1pt,
+    minimum width=3.2cm, minimum height=1.6cm, align=center, font=\small},
+  scale=0.78, transform shape
+]
+% Top row
+\node[box, fill=ACprimary!10, draw=ACprimary] at (-3.6, 1.3) {
+  \textbf{\textcolor{ACprimary}{(1) Ramp-Up}}\\[2pt]
+  \scriptsize $1\times \to 3\times$ linear ramp\\
+  Tests provisioning
+};
+\node[box, fill=ACred!10, draw=ACred] at (3.6, 1.3) {
+  \textbf{\textcolor{ACred}{(2) Early Shock}}\\[2pt]
+  \scriptsize $4\times$ spike at step 15\\
+  Filters 5+6 fire
+};
+% Bottom row
+\node[box, fill=ACwarn!10, draw=ACwarn] at (-3.6,-1.3) {
+  \textbf{\textcolor{ACwarn}{(3) Choppy Plateau}}\\[2pt]
+  \scriptsize $2.5\times \pm$ noise\\
+  No VM thrashing
+};
+\node[box, fill=ACgreen!10, draw=ACgreen!70!black] at (3.6,-1.3) {
+  \textbf{\textcolor{ACgreen!70!black}{(4) Trough + Recovery}}\\[2pt]
+  \scriptsize $0.3\times$ then $2.5\times$\\
+  Avoid over-drain
+};
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.1cm}
+\begin{tcolorbox}[accentbox]
+\small \textbf{Why stress test?} These patterns are \emph{out-of-distribution} --- the
+agents were trained on the Alibaba Day~2 trace. Stress tests verify the Safety Coordinator
+and learned policy generalise to unseen workload shapes.
+\end{tcolorbox}
+\end{frame}
+
+% ── Slide 14 · Demo ───────────────────────────────────────────────────────────
+\begin{frame}{Live Demo --- \texttt{python demo.py}}
+\begin{center}
+\begin{tikzpicture}[
+  mode/.style={rectangle, rounded corners=5pt, draw, line width=1pt,
+    minimum width=2.8cm, minimum height=1.6cm, align=center, font=\small},
+  scale=0.88, transform shape
+]
+\node[mode, fill=ACprimary!12, draw=ACprimary] at (-4.8,0) {
+  \texttt{standard}\\[3pt]
+  \scriptsize RL agent vs\\one chosen baseline\\step-by-step
+};
+\node[mode, fill=ACaccent!12, draw=ACaccent] at (-1.6,0) {
+  \texttt{shootout}\\[3pt]
+  \scriptsize RL vs all\\5 baselines\\ranked table
+};
+\node[mode, fill=ACred!12, draw=ACred] at (1.6,0) {
+  \texttt{stress}\\[3pt]
+  \scriptsize Extreme workload\\RL vs chosen baseline\\4 scenarios
+};
+\node[mode, fill=ACwarn!12, draw=ACwarn] at (4.8,0) {
+  \texttt{ablation}\\[3pt]
+  \scriptsize 3-agent I-PPO\\vs Single-Agent\\PPO
+};
+\end{tikzpicture}
 \end{center}
 
 \vspace{0.2cm}
-\textbf{Why separate from reward?}\\
-Hard constraints in rewards only penalize violations --- they don't prevent them.
-The coordinator \textit{guarantees} constraint satisfaction.
-\end{frame}
-
-% Slide 8: Simulator
-\begin{frame}{Cloud Simulator}
-Custom SimPy-based discrete-event simulator with Gymnasium API.
-
-\vspace{0.3cm}
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
-\textbf{Configuration:}
-\begin{itemize}
-  \item 3--20 VMs, 4 node types
-  \item 30s time step, 120 steps/episode
-  \item Node lifecycle: BOOTING $\to$ ACTIVE $\to$ DRAINING $\to$ TERMINATED
-\end{itemize}
+\begin{tcolorbox}[accentbox]
+\small \textbf{Each step displays:}\\
+\textbullet{} forecaster predictions $\pm\sigma$\\
+\textbullet{} peak queue depth\\
+\textbullet{} VM state dots (booting/active/draining)\\
+\textbullet{} agent decisions + Safety Coordinator overrides\\
+\textbullet{} live cost \& cumulative SLA rate
+\end{tcolorbox}
 \end{column}
 \begin{column}{0.48\textwidth}
-\textbf{Observation (215-dim):}
-\begin{itemize}
-  \item 120: node features (20$\times$6)
-  \item 80: job features (20$\times$4)
-  \item 15: global (CPU, queue, forecast)
-\end{itemize}
-\end{column}
-\end{columns}
-
-\vspace{0.3cm}
-\textbf{Workload:} Alibaba Cluster Trace 2018 [Alibaba, 2018]\\
-4,023 machines, 7 days of production data, binned at 30s intervals.
-\end{frame}
-
-% Slide 9: Results
-\begin{frame}{Results}
-\begin{center}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Method} & \textbf{SLA} & \textbf{Cost Eff.} & \textbf{CPU Util.} & \textbf{Stability} \\
-\midrule
-\textbf{AutoCloud-Agent} & \textbf{100\%} & \textbf{0.962} & \textbf{0.552} & 0.889 \\
-MPCController & 100\% & 0.962 & 0.552 & 0.941 \\
-ThresholdReactive & 100\% & 0.955 & 0.483 & 0.822 \\
-StaticN & 100\% & 0.938 & 0.333 & 1.000 \\
-KubernetesHPA & 100\% & 0.930 & 0.312 & 0.842 \\
-AWSTargetTracking & 100\% & 0.928 & 0.295 & 0.876 \\
-SingleAgentPPO & 100\% & 0.924 & 0.413 & 0.794 \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\vspace{0.3cm}
-\begin{itemize}
-  \item Matches MPC on cost efficiency (0.962), the best classical method
-  \item 3.4\% better than Kubernetes HPA on cost
-  \item CPU utilization nearly $2\times$ that of AWS Target Tracking
-  \item Multi-agent outperforms single-agent by 4.1\% cost, 33.7\% CPU
-\end{itemize}
-\end{frame}
-
-% Slide 10: Ablation & Stress Testing
-\begin{frame}{Ablation Study \& Stress Testing}
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{Why multi-agent wins:}
-\begin{itemize}
-  \item SingleAgentPPO: 0.924 cost, 41.3\% CPU
-  \item AutoCloud: 0.962 cost, 55.2\% CPU
-  \item Temporal hierarchy: each agent matches its natural decision frequency
-  \item Per-agent rewards: clearer learning signal
-\end{itemize}
-\end{column}
-\begin{column}{0.48\textwidth}
-\textbf{Stress scenarios:}
-\begin{enumerate}
-  \item Ramp-up (20\%\,$\to$\,100\%)
-  \item Sudden spike (30\%\,$\to$\,95\% in 5 steps)
-  \item Choppy plateau (70--90\% + noise)
-  \item Trough-then-recovery
-\end{enumerate}
-\vspace{0.2cm}
-Safety Filter 5 (proactive scale-out) and Filter 6 (queue emergency)
-are critical for the sudden spike scenario.
+\begin{tcolorbox}[accentbox]
+\small \textbf{Quick start:}\\
+\texttt{python demo.py} \quad (wizard)\\
+\texttt{python demo.py --mode stress}\\
+\texttt{python demo.py --mode shootout}\\
+\texttt{python demo.py --mode ablation}\\
+\texttt{python demo.py --no-pause --speed fast}
+\end{tcolorbox}
 \end{column}
 \end{columns}
 \end{frame}
 
-% Slide 11: Limitations & Future Work
-\begin{frame}{Limitations \& Future Work}
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{Current limitations:}
-\begin{itemize}
-  \item Homogeneous VMs only
-  \item Single-cluster scope
-  \item Simplified networking
-  \item Static reward weights
-  \item Single-day training data
-\end{itemize}
-\end{column}
-\begin{column}{0.48\textwidth}
-\textbf{Future work:}
-\begin{itemize}
-  \item Heterogeneous VM types
-  \item Multi-cluster federation
-  \item Vertical scaling (VM resizing)
-  \item Transfer learning across traces
-  \item Spot instance pricing
-\end{itemize}
-\end{column}
-\end{columns}
-\end{frame}
-
-% Slide 12: Demo Modes
-\begin{frame}{Live Demo: 4 Modes}
-\texttt{python demo.py} — interactive terminal demo with 4 modes:
-
-\vspace{0.3cm}
-\begin{center}
-\begin{tabular}{lp{8cm}}
-\toprule
-\textbf{Mode} & \textbf{What It Shows} \\
-\midrule
-\texttt{standard} & Step-by-step: AutoCloud-Agent vs one chosen baseline \\
-\texttt{shootout} & AutoCloud-Agent vs all 5 baselines with ranked table \\
-\texttt{stress} & Agent vs KubernetesHPA on extreme workload (ramp, shock, choppy, trough) \\
-\texttt{ablation} & 3-agent I-PPO vs Single-Agent PPO — explains decomposition value \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\vspace{0.3cm}
-\textbf{Each step shows:} forecaster predictions $\pm\sigma$, peak queue depth,
-current VM state (booting/active/draining), agent decisions, Safety Coordinator
-overrides, live cost, and cumulative SLA rate.
-\end{frame}
-
-% Slide 13: Conclusion
+% ── Slide 15 · Conclusion ────────────────────────────────────────────────────
 \begin{frame}{Conclusion}
-\textbf{AutoCloud-Agent} decomposes cloud resource management into three
-independent RL agents with:
-
-\vspace{0.3cm}
-\begin{enumerate}
-  \item \textbf{Multi-agent I-PPO:} 3 agents at different temporal frequencies
-  \item \textbf{Uncertainty-aware forecasting:} Transformer + MC Dropout for proactive scaling
-  \item \textbf{Safety coordinator:} 5 hard-constraint filters guaranteeing system stability
-\end{enumerate}
-
-\vspace{0.3cm}
-\textbf{Key results:}
-\begin{itemize}
-  \item 96.2\% cost efficiency (matches MPC, beats HPA by 3.4\%)
-  \item 55.2\% CPU utilization ($2\times$ AWS Target Tracking)
-  \item 100\% SLA compliance
-  \item 4.1\% cost and 33.7\% CPU improvement over single-agent RL
-\end{itemize}
-
-\vspace{0.3cm}
-\textbf{References:} Schulman et al. (PPO, 2017), Vaswani et al. (Transformers, 2017), Gal \& Ghahramani (MC Dropout, 2016), Zhang et al. (AWARE, USENIX ATC 2023)
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
+\begin{tcolorbox}[mybox, title={Three Contributions}]
+\small
+\textbf{1. Multi-Agent Decomposition (I-PPO)}\\
+\footnotesize 3 agents at different temporal frequencies ---\\
+15M joint space $\to$ three manageable spaces\\[5pt]
+\small \textbf{2. Uncertainty-Aware Forecasting}\\
+\footnotesize Transformer + MC Dropout $\to$ proactive\\
+scaling before the spike arrives\\[5pt]
+\small \textbf{3. Safety Coordinator}\\
+\footnotesize 7 hard-constraint filters guarantee no\\
+unsafe action ever reaches the simulator
+\end{tcolorbox}
+\end{column}
+\begin{column}{0.45\textwidth}
+\vspace{0.2cm}
+\begin{tcolorbox}[accentbox]
+\small
+\textbf{96.2\%} cost efficiency\\
+\textbf{55.2\%} CPU utilization\\
+\textbf{100\%} SLA compliance\\[5pt]
+Matches \textbf{MPC} (best classical)\\
+Beats \textbf{K8s HPA} by 3.4\% cost\\
+\textbf{+4.1\%} cost, \textbf{+33.7\%} CPU\\
+over single-agent RL
+\end{tcolorbox}
+\vspace{0.2cm}
+\begin{tcolorbox}[warnbox]
+\small \textbf{Refs:} Schulman et al.\ (PPO,~2017)\\
+Vaswani et al.\ (Transformers,~2017)\\
+Gal \& Ghahramani (MC Dropout,~2016)\\
+Zhang et al.\ (AWARE, ATC~2023)
+\end{tcolorbox}
+\end{column}
+\end{columns}
 \end{frame}
 
 \end{document}
+
+
