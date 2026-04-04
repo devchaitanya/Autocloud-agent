@@ -26,11 +26,10 @@
 
 \title{AutoCloud-Agent: Multi-Agent Reinforcement Learning\\for Cloud Resource Management}
 
-\author{
-\IEEEauthorblockN{K Chaitanya (25CS60R28) \quad Rahul K (25CS60R16) \quad Sri Lalitha Rama Siddesh Devarakonda (25CS60R80)}
+\author{\IEEEauthorblockN{Cloud Computing Term Project}
 \IEEEauthorblockA{Department of Computer Science and Engineering\\
 Indian Institute of Technology Kharagpur\\
-April 2026}}
+March 2026}}
 
 \begin{document}
 \maketitle
@@ -317,7 +316,7 @@ MC Dropout~\cite{gal2016dropout}:
 
 \subsection{Safety Coordinator}
 
-A rule-based post-processing filter enforces seven hard constraints
+A rule-based post-processing filter enforces five hard constraints
 (Table~\ref{tab:safety}).
 
 \begin{table}[h]
@@ -331,10 +330,8 @@ A rule-based post-processing filter enforces seven hard constraints
 1 & Boot Protection & Never drain a node younger than boot\_time + 60s \\
 2 & $N_{\min}$ Floor & Never go below 3 active nodes \\
 3 & Uncert. Suppress & If $\sigma_{t+5} > 0.3$, block drains \\
-3b & High-Load Guard & Suppress drains if mean CPU $> 75\%$ OR queue $> 10$ OR any node booting \\
 4 & Scale-Out Suppress & Block scale-up if $\geq$2 nodes booting \\
 5 & Proactive Scale-Out & If $\sigma > 0.3$ AND CPU rising, force +1 \\
-6 & Queue Emergency & Force +1 VM if queue $> 40$; force +2 if queue $> 120$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -357,10 +354,6 @@ We built a discrete-event cloud simulator using \textbf{SimPy} wrapped in a
         2018~\cite{alibaba2018}, binned at 30-second intervals (2,880
         snapshots/day, 7 days total, 4,023 machines).
 \end{itemize}
-
-A key implementation detail: the \texttt{queue\_len} metric is captured at
-its peak \emph{before} the SimPy dispatcher clears the queue each step
-(\texttt{step\_peak\_queue}), ensuring accurate queue depth reporting.
 
 The simulator produces a 215-dimensional observation at each step:
 120 node features (20 nodes $\times$ 6 features), 80 job features
@@ -421,21 +414,6 @@ Workload & Alibaba Cluster Trace 2018 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\subsection{Interactive Demo}
-
-The interactive demo (\texttt{demo.py}) supports four modes:
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Standard}: step-by-step walkthrough of AutoCloud-Agent
-        vs.~one chosen baseline.
-  \item \textbf{Shootout}: AutoCloud-Agent vs.~all five baselines with a
-        ranked results table.
-  \item \textbf{Stress}: AutoCloud-Agent vs.~Kubernetes HPA on an
-        extreme workload scenario (ramp-up, shock, choppy plateau, or
-        trough\,+\,recovery).
-  \item \textbf{Ablation}: 3-agent I-PPO vs.~Single-Agent PPO,
-        illustrating the value of decomposition.
-\end{itemize}
 
 \section{Evaluation}
 
@@ -553,10 +531,9 @@ We evaluate robustness under four out-of-distribution workload patterns:
         Tests aggressive consolidation and rapid recovery.
 \end{enumerate}
 
-The Safety Coordinator's proactive scale-out filter (Filter 5) and queue
-backlog emergency filter (Filter 6) are critical for the sudden spike
-scenario, forcing immediate node addition when uncertainty is high, CPU is
-rising, or the queue exceeds 40 pending jobs.
+The Safety Coordinator's proactive scale-out filter (Filter 5) is critical
+for the sudden spike scenario, forcing immediate node addition when uncertainty
+is high and CPU is rising.
 
 \section{Key Design Decisions}
 

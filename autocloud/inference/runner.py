@@ -138,6 +138,7 @@ class InferenceRunner:
 
         # Safety coordinator
         cpu = env.sim.get_metrics().get("mean_cpu_util", 0.0)
+        queue_len = env.sim.get_metrics().get("queue_len", 0)
         a_so_f, a_con_f, a_sch_f = self.coordinator.resolve(
             a_scaleout=a_so,
             consolidation_vec=a_con,
@@ -147,6 +148,8 @@ class InferenceRunner:
             sigma_t5=float(env.forecast_sigmas[1]),
             cpu_rising=cpu > env._prev_cpu,
             cpu_delta=cpu - env._prev_cpu,
+            queue_len=queue_len,
+            mean_cpu=cpu,
         )
 
         def _int(x):

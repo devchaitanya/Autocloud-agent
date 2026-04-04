@@ -67,6 +67,7 @@ class CloudSimulator:
         self.step_migrations: int = 0
         self.step_wait_times: List[float] = []
         self.step_sojourn_times: List[float] = []
+        self.step_peak_queue: int = 0
         self.total_cost: float = 0.0
 
         # Running processes
@@ -92,6 +93,7 @@ class CloudSimulator:
         self.step_migrations = 0
         self.step_wait_times = []
         self.step_sojourn_times = []
+        self.step_peak_queue = 0
         self.total_cost = 0.0
         self._recent_sojourns = deque(maxlen=200)
 
@@ -112,6 +114,7 @@ class CloudSimulator:
         self.step_migrations = 0
         self.step_wait_times = []
         self.step_sojourn_times = []
+        self.step_peak_queue = 0
         self.env.run(until=target_time)
         self._accrue_cost()
 
@@ -203,6 +206,8 @@ class CloudSimulator:
             yield self.env.timeout(inter_arrival)
             job = self._generate_job()
             self.queue.append(job)
+            if len(self.queue) > self.step_peak_queue:
+                self.step_peak_queue = len(self.queue)
             self._try_dispatch()
 
     def _current_rate(self) -> float:
@@ -342,6 +347,7 @@ class CloudSimulator:
         mean_mem = float(np.mean(mem_utils)) if mem_utils else 0.0
 
         queue_len = len(self.queue)
+        peak_queue_len = self.step_peak_queue
 
         # P95 sojourn (latency proxy)
         if len(self._recent_sojourns) >= 5:
@@ -364,6 +370,7 @@ class CloudSimulator:
             "mean_cpu_util": mean_cpu,
             "mean_mem_util": mean_mem,
             "queue_len": queue_len,
+            "peak_queue_len": peak_queue_len,
             "p95_latency": p95,
             "mean_wait": mean_wait,
             "step_cost": step_cost,

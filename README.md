@@ -6,6 +6,8 @@ Three specialised RL agents learn to manage a cloud cluster — adding servers, 
 
 Tested against 6 SOTA baselines (Kubernetes HPA, AWS Target Tracking, MPC, etc.) on real **Alibaba Cluster Trace 2018** data.
 
+
+
 ---
 
 ## Prerequisites
@@ -38,7 +40,10 @@ This installs the `autocloud` Python package and all dependencies from `pyprojec
 ## Quick Start
 
 ```bash
-python demo.py                   # interactive live demo
+python demo.py                   # interactive live demo (wizard picks mode)
+python demo.py --mode stress     # stress test mode (no wizard)
+python demo.py --mode shootout   # RL vs all 5 baselines
+python demo.py --mode ablation   # 3-agent vs single-agent ablation
 python scripts/evaluate.py       # full evaluation (7 methods × 3 seeds)
 python stress_test.py            # 4 peak-load stress scenarios
 ```
@@ -77,6 +82,17 @@ python demo.py --speed fast --steps 30 --no-pause --seed 123
 | `--steps` | `60` | Number of simulation steps per phase |
 | `--seed` | `42` | Random seed for reproducibility |
 | `--no-pause` | off | Skip interactive "Press Enter" prompts |
+| `--no-interactive` | off | Skip configuration wizard, use all defaults |
+| `--mode` | none | `standard` / `shootout` / `stress` / `ablation` — bypasses wizard and runs chosen mode directly |
+
+**Demo modes:**
+
+| Mode | What It Runs | Best For |
+|------|-------------|----------|
+| `standard` | AutoCloud-Agent vs one chosen baseline, step-by-step | Default walkthrough |
+| `shootout` | AutoCloud-Agent vs **all 5 baselines**, ranked table | Full benchmark comparison |
+| `stress` | AutoCloud-Agent + KubernetesHPA on an extreme workload scenario | Robustness demonstration |
+| `ablation` | 3-agent I-PPO vs Single-Agent PPO | Explains why decomposition helps |
 
 **What you'll see:**
 - **Phase 1:** AutoCloud-Agent running (node status dots, CPU/memory bars, SLA badge, live cost)
@@ -247,9 +263,10 @@ Evaluated on real Alibaba cluster trace data (5 episodes × 3 seeds):
          │                │               │
     ┌────▼────────────────▼───────────────▼────┐
     │          Safety Coordinator               │
-    │  5 filters: boot-protect, N_min floor,    │
-    │  uncertainty hold, anti-overlap,          │
-    │  proactive scale-out                      │
+    │  7 filters: boot-protect, N_min floor,    │
+    │  uncertainty hold, high-load guard,       │
+    │  anti-overlap, proactive scale-out,        │
+    │  queue backlog emergency                   │
     └─────────────────┬────────────────────────┘
                       │
               ┌───────▼───────┐
@@ -259,6 +276,8 @@ Evaluated on real Alibaba cluster trace data (5 episodes × 3 seeds):
 ```
 
 The **Workload Forecaster** (Transformer + MC Dropout) predicts demand 1–15 steps ahead and provides uncertainty estimates that feed into both the observation and the Safety Coordinator.
+
+The Safety Coordinator applies **7 filters** (in order): boot-protect, N_min floor, uncertainty hold, **high-load drain guard**, anti-overlap, proactive scale-out, and **queue backlog emergency scale-out**.
 
 ---
 
@@ -295,7 +314,7 @@ autocloud_agent/
 │   │   ├── transformer_model.py  ← WorkloadTransformer (2-layer, 4-head)
 │   │   └── mc_dropout.py   ← MC Dropout uncertainty (30 forward passes)
 │   ├── coordinator/
-│   │   └── safety.py       ← 5-filter Safety Coordinator
+│   │   └── safety.py       ← 7-filter Safety Coordinator
 │   ├── inference/
 │   │   └── runner.py       ← InferenceRunner (ties everything together)
 │   ├── evaluation/

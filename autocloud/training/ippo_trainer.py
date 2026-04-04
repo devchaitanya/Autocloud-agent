@@ -169,6 +169,7 @@ class IPPOTrainer:
 
             # Coordinator: apply safety filters
             curr_cpu = self.env.sim.get_metrics().get("mean_cpu_util", 0.0)
+            curr_queue = self.env.sim.get_metrics().get("queue_len", 0)
             a_so_final, a_con_final, a_sch_final = self.coordinator.resolve(
                 a_scaleout=a_so,
                 consolidation_vec=a_con,
@@ -178,6 +179,8 @@ class IPPOTrainer:
                 sigma_t5=sigma_t5,
                 cpu_rising=curr_cpu > self.env._prev_cpu,
                 cpu_delta=curr_cpu - self.env._prev_cpu,
+                queue_len=curr_queue,
+                mean_cpu=curr_cpu,
             )
 
             # Env step
@@ -338,6 +341,7 @@ class IPPOTrainer:
         a_sch, _, _ = self.sch_agent.act(obs)
 
         current_cpu = env.sim.get_metrics().get("mean_cpu_util", 0.0)
+        current_queue = env.sim.get_metrics().get("queue_len", 0)
         a_so_final, a_con_final, a_sch_final = self.coordinator.resolve(
             a_scaleout=a_so,
             consolidation_vec=a_con,
@@ -347,6 +351,8 @@ class IPPOTrainer:
             sigma_t5=float(env.forecast_sigmas[1]),
             cpu_rising=current_cpu > env._prev_cpu,
             cpu_delta=current_cpu - env._prev_cpu,
+            queue_len=current_queue,
+            mean_cpu=current_cpu,
         )
 
         self._eval_step += 1

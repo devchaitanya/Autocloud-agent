@@ -63,6 +63,8 @@ class SafetyCoordinator:
         cpu_rising: bool = False,           # True when current CPU > previous step CPU
         cpu_delta: float = 0.0,             # absolute change in CPU util this step
         n_max: int = 20,
+        queue_len: int = 0,                 # current queue depth (for backlog override)
+        mean_cpu: float = 0.0,              # cluster mean CPU util (for drain suppression)
     ) -> Tuple[int, np.ndarray, np.ndarray]:
         """
         Apply safety filters and return the final action triple.
@@ -110,6 +112,16 @@ class SafetyCoordinator:
         if sigma_t5 > self.sigma_high:
             drain_set = []
 
+        # Filter 3b: High-load drain suppression
+        # Suppress draining if ANY of these are true:
+        #   (a) Cluster CPU > 75% — obviously under load
+        #   (b) Queue has any backlog (> 10) — load is arriving faster than being served
+        #   (c) There are still booting nodes — new capacity hasn't landed yet;
+        #       draining existing VMs now would undo the provisioning decision
+        n_booting = sum(1 for n in live_nodes if n.state == NodeState.BOOTING)
+        if mean_cpu > 0.75 or queue_len > 10 or n_booting > 0:
+            drain_set = []
+
         # Filter 4: Simultaneous scale-out suppression
         if a_scaleout > 0:
             drain_set = []
@@ -124,6 +136,17 @@ class SafetyCoordinator:
         if (sigma_t5 > self.sigma_high or cpu_spike) and cpu_rising:
             a_scaleout = max(a_scaleout, 1)
             drain_set = []   # don't drain while forcing scale-out
+
+        # Filter 6 — Queue-backlog emergency override
+        # If queue depth signals severe under-provisioning (>40 jobs = more than
+        # one full step's worth at baseline rate), force at least +1 VM regardless
+        # of what the RL agent decided. Force +2 if already critically overloaded
+        # (>120 jobs). This catches OOD stress workloads the agent never trained on.
+        n_active_now = sum(1 for n in live_nodes if n.state == NodeState.ACTIVE)
+        if queue_len > 40 and n_active_now < n_max:
+            boost = 2 if queue_len > 120 else 1
+            a_scaleout = max(a_scaleout, boost)
+            drain_set = []   # never consolidate under backlog pressure
 
         # Rebuild binary vector from filtered drain_set
         drain_ids_set = set(drain_set)

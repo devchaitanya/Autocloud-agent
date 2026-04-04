@@ -13,9 +13,9 @@
 
 \title{\textbf{AutoCloud-Agent}\\Multi-Agent RL for Cloud Resource Management}
 \subtitle{Resource Management in the Cloud for Elasticity and Cost Minimization}
-\author{Cloud Computing Term Project}
+\author{K Chaitanya (25CS60R28) \and Rahul K (25CS60R16) \and\\ Sri Lalitha Rama Siddesh Devarakonda (25CS60R80)}
 \institute{Indian Institute of Technology Kharagpur}
-\date{March 2026}
+\date{April 2026}
 
 \begin{document}
 
@@ -201,20 +201,22 @@ Rule-based post-processing filter. Guarantees safety regardless of policy qualit
 
 \vspace{0.3cm}
 \begin{center}
-\begin{tabular}{clp{7cm}}
+\begin{tabular}{clp{6.5cm}}
 \toprule
 \textbf{\#} & \textbf{Filter} & \textbf{Rule} \\
 \midrule
 1 & Boot Protection & Never drain a node younger than boot\_time + 60s \\
 2 & $N_{\min}$ Floor & Never go below 3 active nodes \\
 3 & Uncertainty Suppression & If $\sigma > 0.3$, block all drain actions \\
+3b & High-Load Guard & Suppress drains if CPU $>75\%$ OR queue $>10$ OR booting $>0$ \\
 4 & Scale-Out Suppression & Block scale-up if $\geq$2 nodes booting \\
 5 & Proactive Scale-Out & If $\sigma > 0.3$ AND CPU rising, force +1 \\
+6 & Queue Emergency & Force +1 VM if queue $>40$; +2 if queue $>120$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\vspace{0.3cm}
+\vspace{0.2cm}
 \textbf{Why separate from reward?}\\
 Hard constraints in rewards only penalize violations --- they don't prevent them.
 The coordinator \textit{guarantees} constraint satisfaction.
@@ -297,7 +299,8 @@ SingleAgentPPO & 100\% & 0.924 & 0.413 & 0.794 \\
   \item Trough-then-recovery
 \end{enumerate}
 \vspace{0.2cm}
-Safety Filter 5 (proactive scale-out) is critical for sudden spike: forces +1 node when $\sigma > 0.3$ and CPU rising.
+Safety Filter 5 (proactive scale-out) and Filter 6 (queue emergency)
+are critical for the sudden spike scenario.
 \end{column}
 \end{columns}
 \end{frame}
@@ -328,7 +331,31 @@ Safety Filter 5 (proactive scale-out) is critical for sudden spike: forces +1 no
 \end{columns}
 \end{frame}
 
-% Slide 12: Conclusion
+% Slide 12: Demo Modes
+\begin{frame}{Live Demo: 4 Modes}
+\texttt{python demo.py} — interactive terminal demo with 4 modes:
+
+\vspace{0.3cm}
+\begin{center}
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Mode} & \textbf{What It Shows} \\
+\midrule
+\texttt{standard} & Step-by-step: AutoCloud-Agent vs one chosen baseline \\
+\texttt{shootout} & AutoCloud-Agent vs all 5 baselines with ranked table \\
+\texttt{stress} & Agent vs KubernetesHPA on extreme workload (ramp, shock, choppy, trough) \\
+\texttt{ablation} & 3-agent I-PPO vs Single-Agent PPO — explains decomposition value \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.3cm}
+\textbf{Each step shows:} forecaster predictions $\pm\sigma$, peak queue depth,
+current VM state (booting/active/draining), agent decisions, Safety Coordinator
+overrides, live cost, and cumulative SLA rate.
+\end{frame}
+
+% Slide 13: Conclusion
 \begin{frame}{Conclusion}
 \textbf{AutoCloud-Agent} decomposes cloud resource management into three
 independent RL agents with:

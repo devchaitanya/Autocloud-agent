@@ -26,8 +26,8 @@
 % Title
 \title{\textbf{AutoCloud-Agent: Design Document}\\[6pt]
 \large Multi-Agent Reinforcement Learning for Cloud Autoscaling}
-\author{Cloud Computing Course Project}
-\date{\today}
+\author{K Chaitanya (25CS60R28) \quad Rahul K (25CS60R16) \quad Sri Lalitha Rama Siddesh Devarakonda (25CS60R80)}
+\date{April 2026}
 
 \begin{document}
 \maketitle
@@ -185,7 +185,8 @@ All values are normalised to $[0, 1]$.
 \toprule
 \textbf{Action} & \textbf{Type} & \textbf{Meaning} \\
 \midrule
-Scale-Out & Discrete(3) & 0=remove a node, 1=do nothing, 2=add a node \\
+Scale-Out & Discrete(3) & 0=hold (do nothing), 1=provision 1 new VM, 2=provision 2 new VMs \\
+\multicolumn{3}{l}{\footnotesize\textit{ScaleOut only ever adds capacity. Removing VMs is handled exclusively by the Consolidation agent.}} \\
 Consolidation & MultiBinary(20) & For each of 20 node slots: 1=start draining, 0=leave it \\
 Scheduling & Discrete(5) & Priority weighting: 0=FIFO, 1=shortest-first, 2=default, 3=deadline-first, 4=highest-priority-first \\
 \bottomrule
@@ -364,14 +365,18 @@ simulator:
 \toprule
 \textbf{\#} & \textbf{Filter} & \textbf{What It Does} \\
 \midrule
-1 & Boot Protection & Never drain a node that is still booting (< 60s old) \\
+1 & Boot Protection & Never drain a node that is still booting ($<$ 60s old) \\
 2 & $N_{\min}$ Floor & Never go below 3 active nodes (prevents total outage) \\
 3 & Uncertainty Suppression & If forecaster uncertainty $\sigma > 0.3$, block all
     scale-down actions \\
+3b & High-Load Guard & Suppress drains if mean CPU $>$ 75\% OR queue $>$ 10 OR any
+    node still booting --- prevents draining during brief false lulls \\
 4 & Scale-Out Suppression & Block scale-up if 2+ nodes are already booting
     (prevent overshoot) \\
 5 & Proactive Scale-Out & If uncertainty is high AND CPU is rising, force a
     scale-up (defensive provisioning) \\
+6 & Queue Emergency & Force $+$1 VM if queue $>$ 40; force $+$2 VMs if queue $>$ 120.
+    Hard override when the RL agent fails to react to a severe backlog \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -508,7 +513,7 @@ autocloud_agent/
       transformer_model.py      # Workload Transformer
       mc_dropout.py             # MC Dropout uncertainty estimation
     coordinator/
-      safety.py                 # 5-filter safety coordinator
+      safety.py                 # 7-filter safety coordinator
     inference/
       runner.py                 # InferenceRunner (ties everything together)
     evaluation/
@@ -803,8 +808,11 @@ cd autocloud_agent/
 conda activate myenv
 pip install -e .
 
-# Live demo (interactive wizard)
+# Live demo (interactive wizard, 4 modes)
 python demo.py
+python demo.py --mode stress              # stress test, skip wizard
+python demo.py --mode shootout            # RL vs all 5 baselines
+python demo.py --mode ablation            # 3-agent vs single-agent
 python demo.py --speed slow              # slower step delay
 python demo.py --speed fast --no-pause   # non-interactive
 
@@ -840,6 +848,18 @@ Long episode & 200 steps & Diurnal patterns, long-term stability \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+For a quick walkthrough with no interaction, run:
+\begin{lstlisting}[language=bash]
+# Stress scenario 2 (early shock), no pauses
+python demo.py --mode stress --steps 60 --speed normal --no-pause
+
+# Full shootout, fast
+python demo.py --mode shootout --speed fast --no-pause
+
+# Ablation comparison
+python demo.py --mode ablation --speed fast --no-pause
+\end{lstlisting}
 
 
 \section{Glossary of Terms}
