@@ -12,6 +12,9 @@
 \usepackage{caption}
 \usepackage{float}
 \usepackage{cite}
+\makeatletter
+\renewcommand{\@cite}[2]{\textsuperscript{[{#1\if@tempswa , #2\fi}]}}
+\makeatother
 \usepackage{balance}
 
 \hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
